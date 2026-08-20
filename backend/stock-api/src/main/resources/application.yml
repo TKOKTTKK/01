@@ -2,7 +2,7 @@ spring:
   application:
     name: stock-api
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:stockapp}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:stockapp}?sslmode=${DB_SSLMODE:prefer}
     username: ${DB_USERNAME:stockapp}
     password: ${DB_PASSWORD:stockapp123}
     driver-class-name: org.postgresql.Driver
@@ -28,6 +28,11 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 mybatis-plus:
   configuration:
