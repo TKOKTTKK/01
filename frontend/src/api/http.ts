@@ -9,7 +9,7 @@ export interface ApiResult<T> {
   data: T
 }
 
-const http = axios.create({ baseURL: '/', timeout: 10000 })
+const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '/', timeout: 10000 })
 
 http.interceptors.request.use((config) => {
   const store = useUserStore()
