@@ -48,15 +48,19 @@ public class MockMarketDataProvider implements MarketDataProvider {
 
     // ---------------------------------------------------------------
     // 日 K：以昨天为最后一根，向前生成 days 根（跳过周末）
+    // 注意：随机游走基于固定长度的历史（MAX_HISTORY_DAYS），只是按 days 截取尾部，
+    // 这样"某一天的收盘价"只取决于日期本身，不会因为调用方请求的天数不同而算出不同的值
     // ---------------------------------------------------------------
+    private static final int MAX_HISTORY_DAYS = 250;
+
     @Override
     public List<KlineVO> getKline(String code, int days) {
-        List<LocalDate> dates = lastTradingDays(days);
+        List<LocalDate> dates = lastTradingDays(MAX_HISTORY_DAYS);
         double base = BASE_PRICE.getOrDefault(code, 20.0 + Math.abs(code.hashCode() % 80));
         Random seedRnd = new Random(code.hashCode() * 31L);
         double drift = (seedRnd.nextDouble() - 0.45) * 0.001; // 轻微趋势
 
-        List<KlineVO> list = new ArrayList<>(dates.size());
+        List<KlineVO> full = new ArrayList<>(dates.size());
         double close = base * (0.75 + seedRnd.nextDouble() * 0.2); // 起点低于当前基准
         for (LocalDate d : dates) {
             Random r = rnd(code, d);
@@ -67,11 +71,12 @@ public class MockMarketDataProvider implements MarketDataProvider {
             double low = Math.min(open, c) * (1 - r.nextDouble() * 0.012);
             long volume = (long) (80_000 + r.nextDouble() * 400_000);   // 手
             double amount = volume * 100 * (high + low) / 2;
-            list.add(new KlineVO(d.format(DATE_FMT),
+            full.add(new KlineVO(d.format(DATE_FMT),
                     dec(open), dec(high), dec(low), dec(c), volume, dec(amount)));
             close = c;
         }
-        return list;
+        int n = Math.min(Math.max(days, 1), full.size());
+        return new ArrayList<>(full.subList(full.size() - n, full.size()));
     }
 
     // ---------------------------------------------------------------
