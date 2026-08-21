@@ -92,3 +92,51 @@ export interface TokenData {
 }
 
 export type Period = 'day' | 'week' | 'month'
+
+// ---------- 模拟交易 ----------
+
+export interface SimAccount {
+  totalAssets: number
+  availableCash: number
+  frozenCash: number
+  positionMarketValue: number
+  todayProfit: number
+  totalProfit: number
+  totalProfitRate: number
+  initialCash: number
+  mock: boolean
+}
+
+export interface SimPosition {
+  stockId: number
+  code: string
+  name: string
+  quantity: number
+  availableQuantity: number
+  avgCost: number
+  price: number | null
+  marketValue: number | null
+  profit: number | null
+  profitRate: number | null
+  todayProfit: number | null
+}
+
+export interface SimTrade {
+  id: number
+  code: string
+  name: string
+  side: 'BUY' | 'SELL'
+  quantity: number
+  price: number
+  amount: number
+  createdAt: string
+}
+
+export interface SimCashFlow {
+  id: number
+  type: string
+  amount: number
+  balance: number
+  description: string
+  createdAt: string
+}

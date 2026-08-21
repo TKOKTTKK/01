@@ -17,9 +17,25 @@
       </div>
     </div>
 
+    <!-- 模拟交易账户卡片 -->
+    <div class="card sim-card" v-if="userStore.isLoggedIn() && sim.account"
+      @click="$router.push('/trade')">
+      <div>
+        <div class="slabel">模拟交易账户 <span class="mock-badge">虚拟资金</span></div>
+        <div class="sassets">{{ fmtMoney(sim.account.totalAssets) }}</div>
+      </div>
+      <div class="srate" :class="changeClass(sim.account.totalProfitRate)">
+        {{ sim.account.totalProfitRate > 0 ? '+' : '' }}{{ sim.account.totalProfitRate.toFixed(2) }}%
+        <span class="arrow">›</span>
+      </div>
+    </div>
+
     <div class="card list">
       <div class="item" @click="$router.push('/watchlist')">
         <span>我的自选</span><span class="arrow">›</span>
+      </div>
+      <div class="item" @click="$router.push('/trade')">
+        <span>模拟交易账户</span><span class="arrow">›</span>
       </div>
       <div class="item" @click="$router.push('/market')">
         <span>市场行情</span><span class="arrow">›</span>
@@ -28,8 +44,11 @@
         <span>行情数据源</span>
         <span class="mock-badge">模拟行情（非真实数据）</span>
       </div>
+      <div class="item" @click="$router.push('/settings')">
+        <span>设置</span><span class="arrow">›</span>
+      </div>
       <div class="item">
-        <span>版本</span><span class="arrow" style="font-size:13px">v1.0.0</span>
+        <span>关于</span><span class="arrow" style="font-size:13px">v2.0.0</span>
       </div>
     </div>
 
@@ -37,23 +56,40 @@
 
     <p class="disclaimer">
       本应用当前展示的所有行情、指数与新闻均为系统生成的模拟数据，
-      仅用于产品演示，不构成任何投资建议。
+      模拟交易使用虚拟资金，仅用于产品演示，不构成任何投资建议。
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onActivated, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { fmtTime } from '@/utils/format'
+import { useSimStore } from '@/stores/sim'
+import { useWatchlistStore } from '@/stores/watchlist'
+import { changeClass, fmtTime } from '@/utils/format'
+
+defineOptions({ name: 'MineView' })
 
 const router = useRouter()
 const userStore = useUserStore()
+const sim = useSimStore()
+const watchlist = useWatchlistStore()
 const initial = computed(() => (userStore.user?.username || '?').slice(0, 1).toUpperCase())
+
+const fmtMoney = (v: number) =>
+  v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function ensure() {
+  if (userStore.isLoggedIn() && !sim.loaded) sim.refresh().catch(() => { /* 静默 */ })
+}
+onMounted(ensure)
+onActivated(ensure)
 
 function onLogout() {
   userStore.logout()
+  sim.reset()
+  watchlist.reset()
   router.push('/')
 }
 </script>
@@ -62,12 +98,16 @@ function onLogout() {
 .profile { display: flex; align-items: center; gap: 14px; }
 .avatar {
   width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, #3f8cff, #6a5cff);
+  background: linear-gradient(135deg, var(--accent), #6a5cff);
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; font-weight: 700; color: #fff;
 }
 .uname { font-size: 17px; font-weight: 700; }
 .udesc { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+.sim-card { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.slabel { font-size: 12px; color: var(--text-3); }
+.sassets { font-size: 22px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.srate { font-size: 15px; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 4px; }
 .list { padding: 4px 14px; }
 .item {
   display: flex; align-items: center; justify-content: space-between;

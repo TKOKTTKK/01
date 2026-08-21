@@ -44,7 +44,7 @@ const cls = computed(() => changeClass(props.stock.changePercent))
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.pill.up { background: rgba(240, 73, 62, .14); }
-.pill.down { background: rgba(15, 191, 127, .14); }
+.pill.up { background: var(--up-bg); }
+.pill.down { background: var(--down-bg); }
 .pill.flat { background: var(--bg-soft); }
 </style>

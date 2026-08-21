@@ -4,42 +4,36 @@
       市场指数
       <span class="mock-badge">模拟行情</span>
     </div>
-    <div class="idx-list">
-      <IndexCard v-for="i in indexes" :key="i.code" :index="i" />
+    <div class="idx-list" v-if="market.indexes.length">
+      <IndexCard v-for="i in market.indexes" :key="i.code" :index="i" />
+    </div>
+    <div v-else class="idx-list">
+      <div class="skeleton" style="flex:1;height:78px" v-for="n in 3" :key="n"></div>
     </div>
 
     <div class="section-title">全部股票</div>
     <div class="card" style="padding: 2px 14px;">
-      <StockRow v-for="s in stocks" :key="s.id" :stock="s" />
-      <div v-if="stocks.length === 0" class="empty">加载中…</div>
+      <StockRow v-for="s in market.stocks" :key="s.id" :stock="s" />
+      <div v-if="!market.stocks.length && market.error" class="error-block">
+        <p>行情加载失败</p>
+        <button @click="market.refresh()">重新加载</button>
+      </div>
+      <div v-else-if="!market.stocks.length" class="skeleton" style="height:220px;margin:10px 0"></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { getMarketIndex, listStocks } from '@/api'
-import type { MarketIndex, StockItem } from '@/api/types'
+import { onActivated, onMounted } from 'vue'
+import { useMarketStore } from '@/stores/market'
 import IndexCard from '@/components/IndexCard.vue'
 import StockRow from '@/components/StockRow.vue'
 
-const indexes = ref<MarketIndex[]>([])
-const stocks = ref<StockItem[]>([])
-let timer: number | undefined
+defineOptions({ name: 'MarketView' })
 
-async function load() {
-  try {
-    const [idx, list] = await Promise.all([getMarketIndex(), listStocks()])
-    indexes.value = idx
-    stocks.value = list
-  } catch { /* 保持已有数据 */ }
-}
-
-onMounted(() => {
-  load()
-  timer = window.setInterval(load, 10000)
-})
-onUnmounted(() => window.clearInterval(timer))
+const market = useMarketStore()
+onMounted(() => market.ensure())
+onActivated(() => market.ensure())
 </script>
 
 <style scoped>

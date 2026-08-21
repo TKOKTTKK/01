@@ -37,7 +37,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/stocks/**",
                                 "/api/market/**", "/api/news/**", "/error").permitAll()
-                        .requestMatchers("/api/watchlist/**", "/api/user/**").authenticated()
+                        .requestMatchers("/api/watchlist/**", "/api/user/**", "/api/sim/**").authenticated()
                         .anyRequest().permitAll())
                 .exceptionHandling(eh -> eh.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(200);

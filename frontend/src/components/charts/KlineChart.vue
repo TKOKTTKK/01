@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import { useSettingsStore } from '@/stores/settings'
 import type { Indicators, KlineItem } from '@/api/types'
 
 /**
@@ -21,8 +22,20 @@ const props = defineProps<{
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
-const UP = '#f0493e'
-const DOWN = '#0fbf7f'
+function themeColors() {
+  const css = getComputedStyle(document.documentElement)
+  const v = (name: string, fb: string) => (css.getPropertyValue(name).trim() || fb)
+  return {
+    UP: v('--up', '#f0493e'),
+    DOWN: v('--down', '#0fbf7f'),
+    SPLIT: v('--chart-split', '#1c2533'),
+    AXIS: v('--border', '#232e3f'),
+    LABEL: v('--text-3', '#5f6b7e'),
+    TIP_BG: v('--tooltip-bg', 'rgba(19,25,34,.95)'),
+    TIP_TEXT: v('--text', '#e8edf4')
+  }
+}
+
 const MA_COLORS: Record<string, string> = {
   MA5: '#d9a441', MA10: '#3f8cff', MA20: '#c678dd', MA60: '#56b6c2'
 }
@@ -32,6 +45,7 @@ function nn(arr: (number | null)[] | undefined): (number | string)[] {
 }
 
 function render() {
+  const { UP, DOWN, SPLIT, AXIS, LABEL, TIP_BG, TIP_TEXT } = themeColors()
   if (!chart || props.kline.length === 0) return
   const k = props.kline
   const ind = props.indicators
@@ -101,9 +115,9 @@ function render() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross', label: { backgroundColor: '#2a3648' } },
-      backgroundColor: 'rgba(19,25,34,.95)',
-      borderColor: '#232e3f',
-      textStyle: { color: '#e8edf4', fontSize: 11 },
+      backgroundColor: TIP_BG,
+      borderColor: AXIS,
+      textStyle: { color: TIP_TEXT, fontSize: 11 },
       confine: true,
       formatter: (params: unknown) => {
         const arr = params as { dataIndex: number }[]
@@ -125,8 +139,8 @@ function render() {
     xAxis: [
       {
         type: 'category', data: dates, boundaryGap: true,
-        axisLine: { lineStyle: { color: '#232e3f' } },
-        axisLabel: { color: '#5f6b7e', fontSize: 10 },
+        axisLine: { lineStyle: { color: AXIS } },
+        axisLabel: { color: LABEL, fontSize: 10 },
         axisTick: { show: false }
       },
       { type: 'category', gridIndex: 1, data: dates, ...smallAxis },
@@ -135,14 +149,14 @@ function render() {
     yAxis: [
       {
         type: 'value', scale: true,
-        splitLine: { lineStyle: { color: '#1c2533' } },
-        axisLabel: { color: '#5f6b7e', fontSize: 10 }
+        splitLine: { lineStyle: { color: SPLIT } },
+        axisLabel: { color: LABEL, fontSize: 10 }
       },
       { type: 'value', gridIndex: 1, ...smallAxis },
       {
         type: 'value', gridIndex: 2, scale: true,
         splitLine: { show: false },
-        axisLabel: { color: '#5f6b7e', fontSize: 9 }
+        axisLabel: { color: LABEL, fontSize: 9 }
       }
     ],
     dataZoom: [
@@ -150,10 +164,10 @@ function render() {
       {
         type: 'slider', xAxisIndex: [0, 1, 2], start: startPct, end: 100,
         height: 14, bottom: 0,
-        borderColor: '#232e3f', backgroundColor: '#131922',
+        borderColor: AXIS, backgroundColor: '#131922',
         fillerColor: 'rgba(63,140,255,.15)',
         handleStyle: { color: '#3f8cff' },
-        textStyle: { color: '#5f6b7e', fontSize: 9 }
+        textStyle: { color: LABEL, fontSize: 9 }
       }
     ],
     series: [
@@ -171,6 +185,9 @@ function render() {
   }
   chart.setOption(option as unknown as echarts.EChartsOption, true)
 }
+
+const settings = useSettingsStore()
+watch(() => [settings.priceColorMode, settings.themeMode, settings.themeColor], () => render())
 
 onMounted(() => {
   if (el.value) {

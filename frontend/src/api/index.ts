@@ -1,7 +1,8 @@
 import { request } from './http'
 import type {
   Indicators, Intraday, KlineItem, MarketIndex,
-  NewsItem, Period, Quote, StockItem, TokenData, UserInfo
+  NewsItem, Period, Quote, SimAccount, SimCashFlow, SimPosition,
+  SimTrade, StockItem, TokenData, UserInfo
 } from './types'
 
 // ---------- 股票 / 行情 ----------
@@ -55,3 +56,17 @@ export const removeWatch = (stockId: number) =>
 
 export const inWatchlist = (stockId: number) =>
   request<boolean>({ url: `/api/watchlist/contains/${stockId}` })
+
+// ---------- 模拟交易 ----------
+export const getSimAccount = () => request<SimAccount>({ url: '/api/sim/account' })
+
+export const getSimPositions = () => request<SimPosition[]>({ url: '/api/sim/positions' })
+
+export const placeSimOrder = (code: string, side: 'BUY' | 'SELL', quantity: number) =>
+  request<SimTrade>({ url: '/api/sim/order', method: 'post', data: { code, side, quantity } })
+
+export const getSimTrades = (limit = 50) =>
+  request<SimTrade[]>({ url: '/api/sim/trades', params: { limit } })
+
+export const getSimCashFlows = (limit = 50) =>
+  request<SimCashFlow[]>({ url: '/api/sim/cashflows', params: { limit } })

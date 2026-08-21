@@ -4,55 +4,58 @@
 
     <template v-if="userStore.isLoggedIn()">
       <div class="card" style="padding: 2px 14px;">
-        <div class="wrow" v-for="s in list" :key="s.id">
+        <div class="wrow" v-for="s in watchlist.list" :key="s.id">
           <StockRow :stock="s" style="flex:1" />
           <button class="del" @click.stop="onRemove(s)">删除</button>
         </div>
-        <div v-if="list.length === 0 && loaded" class="empty">
-          暂无自选，<span style="color:var(--accent)" @click="$router.push('/search')">去添加</span>
+        <div v-if="watchlist.loaded && watchlist.list.length === 0" class="empty">
+          还没有自选股票<br /><br />
+          <span class="link" @click="$router.push('/search')">去添加股票</span>
         </div>
+        <div v-else-if="!watchlist.loaded" class="skeleton" style="height:112px;margin:10px 0"></div>
       </div>
     </template>
     <div v-else class="card empty">
-      <span style="color: var(--accent)" @click="$router.push('/login')">登录</span> 后管理自选股
+      <span class="link" @click="$router.push('/login')">登录</span> 后管理自选股
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { getWatchlist, removeWatch } from '@/api'
+import { onActivated, onMounted } from 'vue'
 import type { StockItem } from '@/api/types'
 import { useUserStore } from '@/stores/user'
+import { useWatchlistStore } from '@/stores/watchlist'
+import { useMarketStore } from '@/stores/market'
+import { useUiStore } from '@/stores/ui'
 import StockRow from '@/components/StockRow.vue'
 
+defineOptions({ name: 'WatchlistView' })
+
 const userStore = useUserStore()
-const list = ref<StockItem[]>([])
-const loaded = ref(false)
-let timer: number | undefined
+const watchlist = useWatchlistStore()
+const market = useMarketStore()
+const ui = useUiStore()
 
-async function load() {
-  if (!userStore.isLoggedIn()) return
-  try {
-    list.value = await getWatchlist()
-    loaded.value = true
-  } catch { /* 忽略 */ }
-}
-
-async function onRemove(s: StockItem) {
-  try {
-    await removeWatch(s.id)
-    list.value = list.value.filter(i => i.id !== s.id)
-  } catch (e) {
-    alert((e as Error).message)
+function ensure() {
+  market.ensure() // 自选行情随全局轮询刷新
+  if (userStore.isLoggedIn() && !watchlist.loaded) {
+    watchlist.refresh().catch(() => ui.toast('自选加载失败', 'error'))
   }
 }
+onMounted(ensure)
+onActivated(ensure)
 
-onMounted(() => {
-  load()
-  timer = window.setInterval(load, 10000)
-})
-onUnmounted(() => window.clearInterval(timer))
+async function onRemove(s: StockItem) {
+  const ok = await ui.confirm({ title: `删除自选「${s.name}」？`, danger: true, confirmText: '删除' })
+  if (!ok) return
+  try {
+    await watchlist.remove(s.id)
+    ui.toast('已删除', 'success')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  }
+}
 </script>
 
 <style scoped>

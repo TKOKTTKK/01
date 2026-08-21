@@ -5,16 +5,30 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import { useSettingsStore } from '@/stores/settings'
 import type { Intraday } from '@/api/types'
 
 const props = defineProps<{ data: Intraday | null }>()
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
-const UP = '#f0493e'
-const DOWN = '#0fbf7f'
+
+function themeColors() {
+  const css = getComputedStyle(document.documentElement)
+  const v = (name: string, fb: string) => (css.getPropertyValue(name).trim() || fb)
+  return {
+    UP: v('--up', '#f0493e'),
+    DOWN: v('--down', '#0fbf7f'),
+    SPLIT: v('--chart-split', '#1c2533'),
+    AXIS: v('--border', '#232e3f'),
+    LABEL: v('--text-3', '#5f6b7e'),
+    TIP_BG: v('--tooltip-bg', 'rgba(19,25,34,.95)'),
+    TIP_TEXT: v('--text', '#e8edf4')
+  }
+}
 
 function render() {
+  const { UP, DOWN, SPLIT, AXIS, LABEL, TIP_BG, TIP_TEXT } = themeColors()
   if (!chart || !props.data) return
   const d = props.data
   const times = d.points.map(p => p.time)
@@ -37,9 +51,9 @@ function render() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross', label: { backgroundColor: '#2a3648' } },
-      backgroundColor: 'rgba(19,25,34,.95)',
-      borderColor: '#232e3f',
-      textStyle: { color: '#e8edf4', fontSize: 11 },
+      backgroundColor: TIP_BG,
+      borderColor: AXIS,
+      textStyle: { color: TIP_TEXT, fontSize: 11 },
       confine: true,
       formatter: (params: unknown) => {
         const arr = params as { dataIndex: number }[]
@@ -57,8 +71,8 @@ function render() {
     xAxis: [
       {
         type: 'category', data: times, boundaryGap: false,
-        axisLine: { lineStyle: { color: '#232e3f' } },
-        axisLabel: { color: '#5f6b7e', fontSize: 10, interval: 59 },
+        axisLine: { lineStyle: { color: AXIS } },
+        axisLabel: { color: LABEL, fontSize: 10, interval: 59 },
         axisTick: { show: false }
       },
       {
@@ -70,9 +84,9 @@ function render() {
       {
         type: 'value', scale: true,
         min: pre - maxDiff, max: pre + maxDiff,
-        splitLine: { lineStyle: { color: '#1c2533' } },
+        splitLine: { lineStyle: { color: SPLIT } },
         axisLabel: {
-          color: '#5f6b7e', fontSize: 10,
+          color: LABEL, fontSize: 10,
           formatter: (v: number) => v.toFixed(2)
         }
       },
@@ -94,7 +108,7 @@ function render() {
         markLine: {
           symbol: 'none', silent: true,
           data: [{ yAxis: pre }],
-          lineStyle: { color: '#5f6b7e', type: 'dashed', width: 1 },
+          lineStyle: { color: LABEL, type: 'dashed', width: 1 },
           label: { show: false }
         }
       },
@@ -107,6 +121,9 @@ function render() {
   }
   chart.setOption(option as unknown as echarts.EChartsOption, true)
 }
+
+const settings = useSettingsStore()
+watch(() => [settings.priceColorMode, settings.themeMode, settings.themeColor], () => render())
 
 onMounted(() => {
   if (el.value) {

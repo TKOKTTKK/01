@@ -1,5 +1,6 @@
-/* ============ 简牛行情 · 深色主题 ============ */
-:root {
+/* ============ 简牛行情 · 主题系统 ============ */
+/* 深色（默认） */
+:root, html[data-theme="dark"] {
   --bg: #0d1117;
   --bg-soft: #131922;
   --card: #171f2b;
@@ -8,9 +9,43 @@
   --text: #e8edf4;
   --text-2: #97a3b6;
   --text-3: #5f6b7e;
-  --up: #f0493e;      /* 红涨 */
-  --down: #0fbf7f;    /* 绿跌 */
-  --accent: #3f8cff;
+  --tabbar-bg: rgba(19, 25, 34, .92);
+  --tooltip-bg: rgba(19, 25, 34, .95);
+  --chart-split: #1c2533;
+}
+/* 浅色 */
+html[data-theme="light"] {
+  --bg: #f4f6f9;
+  --bg-soft: #eceff4;
+  --card: #ffffff;
+  --card-hover: #f1f4f8;
+  --border: #e2e7ef;
+  --text: #1b2330;
+  --text-2: #5b6676;
+  --text-3: #8a94a6;
+  --tabbar-bg: rgba(255, 255, 255, .92);
+  --tooltip-bg: rgba(255, 255, 255, .97);
+  --chart-split: #edf0f5;
+}
+/* 主题色 */
+:root, html[data-accent="blue"]   { --accent: #3f8cff; }
+html[data-accent="purple"]        { --accent: #8b6cf6; }
+html[data-accent="green"]         { --accent: #16a37a; }
+html[data-accent="orange"]        { --accent: #f2842c; }
+/* 涨跌颜色（默认红涨绿跌，A 股习惯） */
+:root, html[data-price="red-up"] {
+  --up: #f0493e;
+  --down: #0fbf7f;
+  --up-bg: rgba(240, 73, 62, .14);
+  --down-bg: rgba(15, 191, 127, .14);
+}
+html[data-price="green-up"] {
+  --up: #0fbf7f;
+  --down: #f0493e;
+  --up-bg: rgba(15, 191, 127, .14);
+  --down-bg: rgba(240, 73, 62, .14);
+}
+:root {
   --radius: 14px;
   --tabbar-h: 56px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -26,6 +61,7 @@ html, body {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
+  transition: background .2s, color .2s;
 }
 
 #app { min-height: 100vh; }
@@ -70,9 +106,9 @@ html, body {
   font-weight: 600;
   padding: 13px 0;
   cursor: pointer;
-  transition: opacity .15s;
+  transition: opacity .15s, transform .05s;
 }
-.btn:active { opacity: .8; }
+.btn:active { opacity: .8; transform: scale(.99); }
 .btn:disabled { opacity: .5; }
 .btn.ghost { background: var(--card); border: 1px solid var(--border); color: var(--text); }
 
@@ -89,6 +125,14 @@ html, body {
 .input:focus { border-color: var(--accent); }
 
 .empty { text-align: center; color: var(--text-3); padding: 46px 0; font-size: 13px; }
+.empty .link { color: var(--accent); cursor: pointer; }
+
+.error-block { text-align: center; padding: 30px 0; }
+.error-block p { color: var(--text-3); font-size: 13px; margin-bottom: 12px; }
+.error-block button {
+  border: 1px solid var(--accent); color: var(--accent); background: transparent;
+  border-radius: 9px; padding: 7px 22px; font-size: 13px; cursor: pointer;
+}
 
 .mock-badge {
   display: inline-flex;
@@ -132,3 +176,53 @@ html, body {
 
 .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* ---- Toast ---- */
+.toast-host {
+  position: fixed; left: 0; right: 0;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  z-index: 300; pointer-events: none;
+}
+.toast {
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 13px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .25);
+  animation: toast-in .18s ease;
+  max-width: 82vw;
+}
+.toast.success { border-color: var(--up); }
+.toast.error { border-color: #e05656; color: #e05656; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
+
+/* ---- Confirm Dialog ---- */
+.dialog-mask {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 400; animation: fade-in .15s ease;
+}
+.dialog {
+  width: 300px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 16px; padding: 20px 18px 14px;
+  animation: dialog-in .18s ease;
+}
+.dialog h3 { font-size: 16px; text-align: center; margin-bottom: 12px; }
+.dialog .dline {
+  display: flex; justify-content: space-between;
+  font-size: 13px; color: var(--text-2); padding: 4px 2px;
+}
+.dialog .dline b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.dialog .dbtns { display: flex; gap: 10px; margin-top: 16px; }
+.dialog .dbtns button {
+  flex: 1; border: none; border-radius: 10px; padding: 11px 0;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.dialog .cancel { background: var(--bg-soft); color: var(--text-2); }
+.dialog .ok { background: var(--accent); color: #fff; }
+.dialog .ok.danger { background: var(--up); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes dialog-in { from { opacity: 0; transform: scale(.95); } }
