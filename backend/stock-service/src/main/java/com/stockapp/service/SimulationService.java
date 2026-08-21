@@ -154,7 +154,7 @@ public class SimulationService {
                     .avgCost(p.getAvgCost());
             try {
                 QuoteVO q = marketService.getQuote(stock.getCode());
-                BigDecimal price = q.getPrice();
+                BigDecimal price = marketService.getQuote(stock.getCode(), stock.getName()).getPrice();
                 BigDecimal mv = price.multiply(qty).setScale(2, RoundingMode.HALF_UP);
                 BigDecimal profit = price.subtract(p.getAvgCost()).multiply(qty)
                         .setScale(2, RoundingMode.HALF_UP);
@@ -189,7 +189,7 @@ public class SimulationService {
             throw new BizException(ErrorCode.SIM_QUANTITY_INVALID, "买入数量必须是 100 股的整数倍");
         }
         Stock stock = stockService.getByCode(req.getCode());
-        BigDecimal price = marketService.getQuote(stock.getCode()).getPrice();
+        BigDecimal price = marketService.getQuote(stock.getCode(), stock.getName()).getPrice();
         BigDecimal amount = price.multiply(BigDecimal.valueOf(qty)).setScale(2, RoundingMode.HALF_UP);
 
         ensureAccount(userId);
