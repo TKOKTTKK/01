@@ -77,7 +77,7 @@
 import { onActivated, onDeactivated, onMounted } from 'vue'
 import { useSimStore } from '@/stores/sim'
 import { useUserStore } from '@/stores/user'
-import { changeClass, fmtPrice } from '@/utils/format'
+import { changeClass, fmtMoney, fmtPrice, fmtSigned } from '@/utils/format'
 
 defineOptions({ name: 'TradeView' })
 
@@ -86,10 +86,6 @@ const userStore = useUserStore()
 let timer: number | undefined
 
 const cls = (v: number | null | undefined) => changeClass(v)
-const fmtMoney = (v: number | null | undefined) =>
-  v === null || v === undefined ? '--' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtSigned = (v: number | null | undefined) =>
-  v === null || v === undefined ? '--' : (v > 0 ? '+' : '') + v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function start() {
   if (!userStore.isLoggedIn()) return

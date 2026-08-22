@@ -67,7 +67,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useSimStore } from '@/stores/sim'
 import { useWatchlistStore } from '@/stores/watchlist'
-import { changeClass, fmtTime } from '@/utils/format'
+import { changeClass, fmtMoney, fmtTime } from '@/utils/format'
 
 defineOptions({ name: 'MineView' })
 
@@ -77,8 +77,6 @@ const sim = useSimStore()
 const watchlist = useWatchlistStore()
 const initial = computed(() => (userStore.user?.username || '?').slice(0, 1).toUpperCase())
 
-const fmtMoney = (v: number) =>
-  v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function ensure() {
   if (userStore.isLoggedIn() && !sim.loaded) sim.refresh().catch(() => { /* 静默 */ })

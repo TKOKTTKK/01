@@ -1,5 +1,6 @@
 <template>
-  <div class="row" @click="$router.push(`/stock/${stock.code}`)">
+  <div class="row" @click="$router.push(`/stock/${stock.code}`)"
+    @touchstart.passive="preloadView('stock')" @mouseenter="preloadView('stock')">
     <div class="left">
       <div class="name">{{ stock.name }}</div>
       <div class="code">{{ stock.market }} {{ stock.code }}</div>
@@ -13,6 +14,7 @@
 </template>
 
 <script setup lang="ts">
+import { preloadView } from '@/router'
 import { computed } from 'vue'
 import type { StockItem } from '@/api/types'
 import { changeClass, fmtPercent, fmtPrice } from '@/utils/format'

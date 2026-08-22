@@ -52,7 +52,7 @@ import type { Quote, SimPosition, StockItem } from '@/api/types'
 import { useSimStore } from '@/stores/sim'
 import { useUiStore } from '@/stores/ui'
 import { useUserStore } from '@/stores/user'
-import { fmtPrice } from '@/utils/format'
+import { fmtMoney, fmtPrice } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -71,8 +71,6 @@ let timer: number | undefined
 const position = computed<SimPosition | undefined>(
   () => sim.positions.find(p => p.code === code))
 
-const fmtMoney = (v: number | null | undefined) =>
-  v === null || v === undefined ? '--' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const estAmount = computed(() => {
   const p = quote.value?.price
@@ -157,7 +155,10 @@ onMounted(async () => {
     router.back()
     return
   }
-  timer = window.setInterval(loadQuote, 5000)
+  // 加 visibility 守卫：锁屏/切后台时不再空转请求
+  timer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') loadQuote()
+  }, 5000)
 })
 onUnmounted(() => window.clearInterval(timer))
 </script>

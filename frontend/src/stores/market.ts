@@ -63,9 +63,24 @@ export const useMarketStore = defineStore('market', () => {
     return inflight
   }
 
+  /**
+   * 页面从后台切回前台时立即刷新一次。
+   * 否则用户锁屏几分钟后回来，要干等下一个 10 秒 tick 才更新，
+   * 期间看到的是过期价格。
+   */
+  let visibilityBound = false
+  function bindVisibility() {
+    if (visibilityBound) return
+    visibilityBound = true
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refresh()
+    })
+  }
+
   /** 各页面进入时调用：有缓存立即可见，同时后台刷新并启动全局唯一轮询 */
   function ensure() {
     if (!updatedAt.value || Date.now() - updatedAt.value > 3000) refresh()
+    bindVisibility()
     if (timer === undefined) {
       timer = window.setInterval(() => {
         if (document.visibilityState === 'visible') refresh()

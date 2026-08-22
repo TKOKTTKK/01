@@ -7,6 +7,7 @@ import com.stockapp.common.result.ErrorCode;
 import com.stockapp.common.vo.QuoteVO;
 import com.stockapp.common.vo.SimAccountVO;
 import com.stockapp.common.vo.SimCashFlowVO;
+import com.stockapp.common.vo.SimPortfolioVO;
 import com.stockapp.common.vo.SimPositionVO;
 import com.stockapp.common.vo.SimTradeVO;
 import com.stockapp.dao.entity.SimulationAccount;
@@ -30,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -99,10 +99,28 @@ public class SimulationService {
         return acc;
     }
 
+    /**
+     * 账户 + 持仓合并快照：两者共用同一次持仓计算（同一份行情），
+     * 保证「总资产 = 可用 + 冻结 + Σ持仓市值」在任何时刻都严格成立。
+     * 前端交易页只需请求这一个接口。
+     */
+    public SimPortfolioVO getPortfolio(Long userId) {
+        SimulationAccount acc = ensureAccount(userId);
+        List<SimPositionVO> positions = listPositions(userId);
+        return SimPortfolioVO.builder()
+                .account(buildOverview(acc, positions))
+                .positions(positions)
+                .build();
+    }
+
     /** 账户总览（含按实时行情计算的市值/盈亏） */
     public SimAccountVO getAccountOverview(Long userId) {
         SimulationAccount acc = ensureAccount(userId);
-        List<SimPositionVO> positions = listPositions(userId);
+        return buildOverview(acc, listPositions(userId));
+    }
+
+    /** 由已计算好的持仓列表汇总账户指标，避免重复取行情 */
+    private SimAccountVO buildOverview(SimulationAccount acc, List<SimPositionVO> positions) {
         BigDecimal mv = BigDecimal.ZERO;
         BigDecimal todayProfit = BigDecimal.ZERO;
         for (SimPositionVO p : positions) {
@@ -141,9 +159,20 @@ public class SimulationService {
                         .eq(SimulationPosition::getAccountId, acc.getId())
                         .gt(SimulationPosition::getQuantity, 0L)
                         .orderByDesc(SimulationPosition::getUpdatedAt));
+        if (list.isEmpty()) {
+            return List.of();
+        }
+        // 批量取股票信息，避免 N 次单条查询
+        Map<Long, Stock> stockMap = stockService.mapByIds(
+                list.stream().map(SimulationPosition::getStockId).distinct().toList());
+
         List<SimPositionVO> result = new ArrayList<>();
         for (SimulationPosition p : list) {
-            Stock stock = stockService.getById(p.getStockId());
+            Stock stock = stockMap.get(p.getStockId());
+            if (stock == null) {
+                log.warn("持仓对应股票不存在 stockId={}", p.getStockId());
+                continue;
+            }
             BigDecimal qty = BigDecimal.valueOf(p.getQuantity());
             SimPositionVO.SimPositionVOBuilder b = SimPositionVO.builder()
                     .stockId(p.getStockId())
@@ -303,10 +332,17 @@ public class SimulationService {
                         .eq(SimulationTrade::getAccountId, acc.getId())
                         .orderByDesc(SimulationTrade::getCreatedAt)
                         .last("LIMIT " + Math.min(Math.max(limit, 1), 100)));
-        Map<Long, Stock> cache = new HashMap<>();
+        if (trades.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Stock> cache = stockService.mapByIds(
+                trades.stream().map(SimulationTrade::getStockId).distinct().toList());
         List<SimTradeVO> result = new ArrayList<>();
         for (SimulationTrade t : trades) {
-            Stock stock = cache.computeIfAbsent(t.getStockId(), stockService::getById);
+            Stock stock = cache.get(t.getStockId());
+            if (stock == null) {
+                continue;
+            }
             result.add(SimTradeVO.builder()
                     .id(t.getId())
                     .code(stock.getCode())

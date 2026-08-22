@@ -4,7 +4,8 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { echarts } from './echarts'
+import type { AppEChartsOption, AppECharts } from './echarts'
 import { useSettingsStore } from '@/stores/settings'
 import type { Indicators, KlineItem } from '@/api/types'
 
@@ -20,7 +21,7 @@ const props = defineProps<{
 }>()
 
 const el = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
+let chart: AppECharts | null = null
 
 function themeColors() {
   const css = getComputedStyle(document.documentElement)
@@ -183,7 +184,7 @@ function render() {
       ...subSeries
     ]
   }
-  chart.setOption(option as unknown as echarts.EChartsOption, true)
+  chart.setOption(option as unknown as AppEChartsOption, true)
 }
 
 const settings = useSettingsStore()

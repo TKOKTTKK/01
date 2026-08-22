@@ -47,6 +47,42 @@ class MockMarketDataProviderTest {
         assertEquals(0, q.getChangePercent().compareTo(expect));
     }
 
+    /**
+     * 回归测试：这就是「同一天收盘价随请求天数变化」那个 bug。
+     * 修复前 getKline(code, 2) 和 getKline(code, 250) 对同一个日历日会算出
+     * 完全不同的收盘价（因为随机游走步数 = days）；修复后必须完全一致。
+     */
+    @Test
+    void kline_sameDayMustMatchAcrossDifferentDayCounts() {
+        List<KlineVO> shortSeries = provider.getKline("600519", 2);
+        List<KlineVO> longSeries = provider.getKline("600519", 250);
+
+        KlineVO lastShort = shortSeries.get(shortSeries.size() - 1);
+        KlineVO lastLong = longSeries.get(longSeries.size() - 1);
+        assertEquals(lastLong.getDate(), lastShort.getDate(), "最后一根必须是同一天");
+        assertEquals(0, lastLong.getClose().compareTo(lastShort.getClose()),
+                "同一交易日的收盘价不能因请求天数不同而变化");
+        assertEquals(0, lastLong.getOpen().compareTo(lastShort.getOpen()));
+        assertEquals(0, lastLong.getHigh().compareTo(lastShort.getHigh()));
+        assertEquals(0, lastLong.getLow().compareTo(lastShort.getLow()));
+
+        // 倒数第二根同理
+        KlineVO prevShort = shortSeries.get(0);
+        KlineVO prevLong = longSeries.get(longSeries.size() - 2);
+        assertEquals(prevLong.getDate(), prevShort.getDate());
+        assertEquals(0, prevLong.getClose().compareTo(prevShort.getClose()));
+    }
+
+    /** 分时里的昨收必须等于 K 线序列中前一交易日的收盘价 */
+    @Test
+    void intradayPreClose_shouldMatchKlineHistory() {
+        IntradayVO in = provider.getIntraday("600519");
+        List<KlineVO> hist = provider.getKline("600519", 250);
+        boolean matched = hist.stream()
+                .anyMatch(k -> k.getClose().compareTo(in.getPreClose()) == 0);
+        assertTrue(matched, "昨收必须来自同一份 K 线历史，而非独立生成");
+    }
+
     @Test
     void marketIndex_shouldReturnThreeIndexes() {
         List<MarketIndexVO> idx = provider.getMarketIndex();

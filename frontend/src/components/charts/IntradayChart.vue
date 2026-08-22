@@ -4,13 +4,14 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import { echarts } from './echarts'
+import type { AppEChartsOption, AppECharts } from './echarts'
 import { useSettingsStore } from '@/stores/settings'
 import type { Intraday } from '@/api/types'
 
 const props = defineProps<{ data: Intraday | null }>()
 const el = ref<HTMLDivElement | null>(null)
-let chart: echarts.ECharts | null = null
+let chart: AppECharts | null = null
 
 
 function themeColors() {
@@ -100,10 +101,14 @@ function render() {
         name: '价格', type: 'line', data: prices,
         symbol: 'none', lineStyle: { width: 1.4, color: lineColor },
         areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: lineColor + '38' },
-            { offset: 1, color: lineColor + '00' }
-          ])
+          // 用声明式渐变对象，避免依赖 echarts.graphic（按需引入后更稳妥）
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: lineColor + '38' },
+              { offset: 1, color: lineColor + '00' }
+            ]
+          }
         },
         markLine: {
           symbol: 'none', silent: true,
@@ -119,7 +124,7 @@ function render() {
       { name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: vols, barWidth: '60%' }
     ]
   }
-  chart.setOption(option as unknown as echarts.EChartsOption, true)
+  chart.setOption(option as unknown as AppEChartsOption, true)
 }
 
 const settings = useSettingsStore()

@@ -45,6 +45,15 @@ public class StockService {
         return stock;
     }
 
+    /** 批量按 id 取股票，返回 id -> Stock 映射（供持仓/成交列表避免 N+1 查询） */
+    public java.util.Map<Long, Stock> mapByIds(java.util.List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return java.util.Map.of();
+        }
+        return stockMapper.selectBatchIds(ids).stream()
+                .collect(java.util.stream.Collectors.toMap(Stock::getId, x -> x));
+    }
+
     public Stock getById(Long id) {
         Stock stock = stockMapper.selectById(id);
         if (stock == null) {

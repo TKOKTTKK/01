@@ -63,24 +63,77 @@ public class MockDataInitializer implements ApplicationRunner {
         log.info("Mock 数据初始化完成，共 {} 只股票", stocks.size());
     }
 
+    /**
+     * 初始化 / 补齐 K 线。
+     *
+     * 【为什么不是「有数据就跳过」】
+     * 原实现只在首次启动生成一次，DB 里最后一根日 K 永远停在部署当天；
+     * 而分时/昨收是按「今天的前一交易日」实时算的，随着时间推移两者会越差越远。
+     * 现在改为：对比 DB 最后一根的日期与昨天，缺多少补多少（幂等，已存在的日期跳过），
+     * 并重算受影响的周 K / 月 K（用 deleteThenInsert 覆盖当周/当月那一根）。
+     */
     private void initKline(Stock stock) {
-        Long exists = klineMapper.selectCount(new LambdaQueryWrapper<StockKline>()
-                .eq(StockKline::getStockId, stock.getId())
-                .eq(StockKline::getPeriodType, "day"));
-        if (exists != null && exists > 0) {
+        LocalDate lastDay = latestTradeDate(stock.getId(), "day");
+        List<KlineVO> daily = provider.getKline(stock.getCode(), DAYS);
+        if (daily.isEmpty()) {
             return;
         }
-        List<KlineVO> daily = provider.getKline(stock.getCode(), DAYS);
-        insertKlines(stock.getId(), "day", daily);
-        insertKlines(stock.getId(), "week",
-                aggregate(daily, d -> {
-                    LocalDate date = LocalDate.parse(d.getDate(), FMT);
-                    WeekFields wf = WeekFields.of(Locale.CHINA);
-                    return date.getYear() + "-W" + date.get(wf.weekOfWeekBasedYear());
-                }));
-        insertKlines(stock.getId(), "month",
-                aggregate(daily, d -> d.getDate().substring(0, 7)));
-        log.info("已生成 {} ({}) K线: 日K {} 根", stock.getName(), stock.getCode(), daily.size());
+        LocalDate newest = LocalDate.parse(daily.get(daily.size() - 1).getDate(), FMT);
+        if (lastDay != null && !lastDay.isBefore(newest)) {
+            return; // 已是最新，无需补齐
+        }
+
+        // 只插入 DB 中尚不存在的日期
+        final LocalDate cutoff = lastDay;
+        List<KlineVO> missing = daily.stream()
+                .filter(k -> cutoff == null || LocalDate.parse(k.getDate(), FMT).isAfter(cutoff))
+                .toList();
+        insertKlines(stock.getId(), "day", missing);
+
+        // 周 K / 月 K：重算受影响的周期（覆盖式写入，避免出现半截的周/月）
+        List<KlineVO> weekly = aggregate(daily, d -> {
+            LocalDate date = LocalDate.parse(d.getDate(), FMT);
+            WeekFields wf = WeekFields.of(Locale.CHINA);
+            return date.getYear() + "-W" + date.get(wf.weekOfWeekBasedYear());
+        });
+        List<KlineVO> monthly = aggregate(daily, d -> d.getDate().substring(0, 7));
+        upsertKlines(stock.getId(), "week", affectedSince(weekly, cutoff));
+        upsertKlines(stock.getId(), "month", affectedSince(monthly, cutoff));
+
+        log.info("{} ({}) K线补齐: 新增日K {} 根（至 {}）",
+                stock.getName(), stock.getCode(), missing.size(), newest);
+    }
+
+    /** 取该股票某周期在库中的最新交易日；无数据返回 null */
+    private LocalDate latestTradeDate(Long stockId, String period) {
+        StockKline last = klineMapper.selectOne(new LambdaQueryWrapper<StockKline>()
+                .eq(StockKline::getStockId, stockId)
+                .eq(StockKline::getPeriodType, period)
+                .orderByDesc(StockKline::getTradeDate)
+                .last("LIMIT 1"));
+        return last == null ? null : last.getTradeDate();
+    }
+
+    /** 截取「受本次补齐影响」的周期：cutoff 当周/当月及之后的都要重算 */
+    private List<KlineVO> affectedSince(List<KlineVO> periods, LocalDate cutoff) {
+        if (cutoff == null) {
+            return periods;
+        }
+        return periods.stream()
+                .filter(k -> !LocalDate.parse(k.getDate(), FMT).isBefore(cutoff))
+                .toList();
+    }
+
+    /** 覆盖式写入：先删同 (stock_id, period_type, trade_date) 再插，避免唯一约束冲突 */
+    private void upsertKlines(Long stockId, String period, List<KlineVO> klines) {
+        for (KlineVO k : klines) {
+            LocalDate date = LocalDate.parse(k.getDate(), FMT);
+            klineMapper.delete(new LambdaQueryWrapper<StockKline>()
+                    .eq(StockKline::getStockId, stockId)
+                    .eq(StockKline::getPeriodType, period)
+                    .eq(StockKline::getTradeDate, date));
+        }
+        insertKlines(stockId, period, klines);
     }
 
     /** 将日 K 按 key 聚合为周/月 K（open=首日开，close=末日收，high/low 取极值） */

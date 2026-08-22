@@ -1,7 +1,8 @@
 <template>
   <nav class="tabbar">
     <router-link v-for="t in tabs" :key="t.path" :to="t.path" class="tab"
-      :class="{ active: isActive(t.path) }">
+      :class="{ active: isActive(t.path) }"
+      @touchstart.passive="warm(t.path)" @mouseenter="warm(t.path)">
       <span class="icon" v-html="t.icon"></span>
       <span class="label">{{ t.label }}</span>
     </router-link>
@@ -10,6 +11,13 @@
 
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { pathToView, preloadView } from '@/router'
+
+/** 手指刚触到 / 鼠标刚悬停就开始下载目标页面的 chunk，点击时通常已就绪 */
+function warm(path: string) {
+  const name = pathToView[path]
+  if (name) preloadView(name)
+}
 
 const route = useRoute()
 const isActive = (p: string) => route.path === p

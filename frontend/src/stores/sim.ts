@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getSimAccount, getSimPositions } from '@/api'
+import { getSimPortfolio } from '@/api'
 import type { SimAccount, SimPosition } from '@/api/types'
 
 export const useSimStore = defineStore('sim', () => {
@@ -8,10 +8,15 @@ export const useSimStore = defineStore('sim', () => {
   const positions = ref<SimPosition[]>([])
   const loaded = ref(false)
 
+  /**
+   * 用合并接口一次取回账户 + 持仓。
+   * 之前是两个独立请求，恰好跨过后端行情缓存过期边界时，
+   * 「总资产」和「持仓市值之和」会对不上几分钱。
+   */
   async function refresh() {
-    const [acc, pos] = await Promise.all([getSimAccount(), getSimPositions()])
-    account.value = acc
-    positions.value = pos
+    const data = await getSimPortfolio()
+    account.value = data.account
+    positions.value = data.positions
     loaded.value = true
   }
 

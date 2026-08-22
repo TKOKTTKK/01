@@ -140,3 +140,8 @@ export interface SimCashFlow {
   description: string
   createdAt: string
 }
+
+export interface SimPortfolio {
+  account: SimAccount
+  positions: SimPosition[]
+}

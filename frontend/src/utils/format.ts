@@ -41,3 +41,21 @@ export function fmtTime(s: string | null | undefined): string {
   if (!s) return ''
   return s.replace('T', ' ').slice(5, 16)
 }
+
+/** 金额：千分位 + 固定两位小数，用于资产/市值/成交额 */
+export function fmtMoney(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '--'
+  return v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** 带正负号的金额，用于盈亏 */
+export function fmtSigned(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '--'
+  return (v > 0 ? '+' : '') + fmtMoney(v)
+}
+
+/** 带正负号的百分比（入参已是百分数，如 1.23 表示 1.23%） */
+export function fmtSignedPercent(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '--'
+  return (v > 0 ? '+' : '') + v.toFixed(2) + '%'
+}

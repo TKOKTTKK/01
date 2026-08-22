@@ -52,15 +52,13 @@
 import { onMounted, ref } from 'vue'
 import { getSimCashFlows, getSimTrades } from '@/api'
 import type { SimCashFlow, SimTrade } from '@/api/types'
-import { fmtPrice, fmtTime } from '@/utils/format'
+import { fmtMoney, fmtPrice, fmtTime } from '@/utils/format'
 
 const tab = ref<'trades' | 'flows'>('trades')
 const trades = ref<SimTrade[]>([])
 const flows = ref<SimCashFlow[]>([])
 const loaded = ref(false)
 
-const fmtMoney = (v: number) =>
-  v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 onMounted(async () => {
   try {

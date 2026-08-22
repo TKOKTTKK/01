@@ -5,6 +5,7 @@ import com.stockapp.common.dto.SimOrderRequest;
 import com.stockapp.common.result.Result;
 import com.stockapp.common.vo.SimAccountVO;
 import com.stockapp.common.vo.SimCashFlowVO;
+import com.stockapp.common.vo.SimPortfolioVO;
 import com.stockapp.common.vo.SimPositionVO;
 import com.stockapp.common.vo.SimTradeVO;
 import com.stockapp.service.SimulationService;
@@ -31,6 +32,12 @@ public class SimulationController {
     @GetMapping("/account")
     public Result<SimAccountVO> account() {
         return Result.success(simulationService.getAccountOverview(CurrentUser.id()));
+    }
+
+    /** 账户 + 持仓合并快照（推荐：一次请求，数据严格自洽） */
+    @GetMapping("/portfolio")
+    public Result<SimPortfolioVO> portfolio() {
+        return Result.success(simulationService.getPortfolio(CurrentUser.id()));
     }
 
     /** 持仓列表（含实时市值与浮动盈亏） */

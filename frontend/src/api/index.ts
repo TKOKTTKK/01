@@ -2,7 +2,7 @@ import { request } from './http'
 import type {
   Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, Period, Quote, SimAccount, SimCashFlow, SimPosition,
-  SimTrade, StockItem, TokenData, UserInfo
+  SimPortfolio, SimTrade, StockItem, TokenData, UserInfo
 } from './types'
 
 // ---------- 股票 / 行情 ----------
@@ -58,6 +58,9 @@ export const inWatchlist = (stockId: number) =>
   request<boolean>({ url: `/api/watchlist/contains/${stockId}` })
 
 // ---------- 模拟交易 ----------
+/** 账户 + 持仓合并快照：一次请求，总资产与持仓明细严格自洽 */
+export const getSimPortfolio = () => request<SimPortfolio>({ url: '/api/sim/portfolio' })
+
 export const getSimAccount = () => request<SimAccount>({ url: '/api/sim/account' })
 
 export const getSimPositions = () => request<SimPosition[]>({ url: '/api/sim/positions' })
