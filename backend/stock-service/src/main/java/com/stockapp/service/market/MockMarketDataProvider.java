@@ -48,57 +48,10 @@ public class MockMarketDataProvider implements MarketDataProvider {
     public boolean isMock() { return true; }
 
     // ---------------------------------------------------------------
-    // 日 K：从固定锚点日期一路生成到昨天，再截取尾部 days 根。
-    //
-    // 【关键设计】随机游走必须从固定锚点开始走满全程，而不是从 days 天前开始走 days 步。
-    // 否则同一个日历日的收盘价会随调用方传入的 days 不同而不同，导致
-    // 「详情页昨收（内部取 2 天）」与「K线图最后一根（取 250 天）」对不上。
-    // 现在 getKline 对同一 code + 同一日历日是纯函数，任意 days 都返回一致结果。
-    // ---------------------------------------------------------------
-
-    /** 随机游走锚点：所有历史序列的共同起点，改动此值会使全部历史数据变化 */
-    private static final LocalDate ANCHOR = LocalDate.of(2024, 1, 2);
-
-    @Override
-    public List<KlineVO> getKline(String code, int days) {
-        List<KlineVO> full = fullHistory(code);
-        int from = Math.max(0, full.size() - Math.max(days, 1));
-        return new ArrayList<>(full.subList(from, full.size()));
-    }
-
-    /** 进程内缓存：key = code@日期，同一天只生成一次全量历史 */
-    private static final Map<String, List<KlineVO>> HISTORY_CACHE = new ConcurrentHashMap<>();
-
-    /** 生成 ANCHOR ~ 昨天 的完整日 K 序列（同一 code 同一天结果恒定） */
-    private static List<KlineVO> fullHistory(String code) {
-        String key = code + "@" + LocalDate.now();
-        List<KlineVO> cached = HISTORY_CACHE.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        List<KlineVO> generated = generateHistory(code);
-        HISTORY_CACHE.keySet().removeIf(k -> !k.endsWith("@" + LocalDate.now())); // 跨天自动清理
-        HISTORY_CACHE.put(key, generated);
-        return generated;
-    }
-
-    /**
-     * 均值回归强度。
-     *
-     * 【为什么必须有】游走现在从固定锚点走满全程，步数会随时间不断增长
-     * （2026 年约 690 步，两年后约 1200 步）。纯随机游走的方差随步数线性增长，
-     * 不做回归的话价格会越漂越远——实测茅台会从 1450 跌到 400 出头，明显失真。
-     * 每步按 k 向基准价拉回一点，可让价格长期稳定在基准价上下 ±20% 区间内，
-     * 同时保留短期趋势和波动的形态。
-     */
-    private static final double MEAN_REVERSION = 0.008;
-
-    private static List<KlineVO> generateHistory(String code) {
-        List<LocalDate> dates = tradingDaysSince(ANCHOR);
         double base = BASE_PRICE.getOrDefault(code, 20.0 + Math.abs(code.hashCode() % 80));
         Random seedRnd = new Random(code.hashCode() * 31L);
 
-        List<KlineVO> list = new ArrayList<>(dates.size());
+        List<KlineVO> full = new ArrayList<>(dates.size());
         double close = base * (0.75 + seedRnd.nextDouble() * 0.2); // 起点低于当前基准
         for (LocalDate d : dates) {
             Random r = rnd(code, d);
@@ -110,11 +63,12 @@ public class MockMarketDataProvider implements MarketDataProvider {
             double low = Math.min(open, c) * (1 - r.nextDouble() * 0.012);
             long volume = (long) (80_000 + r.nextDouble() * 400_000);   // 手
             double amount = volume * 100 * (high + low) / 2;
-            list.add(new KlineVO(d.format(DATE_FMT),
+            full.add(new KlineVO(d.format(DATE_FMT),
                     dec(open), dec(high), dec(low), dec(c), volume, dec(amount)));
             close = c;
         }
-        return list;
+        int n = Math.min(Math.max(days, 1), full.size());
+        return new ArrayList<>(full.subList(full.size() - n, full.size()));
     }
 
     /** 指定某个交易日的收盘价（供分时计算昨收，保证与 K 线完全一致） */
