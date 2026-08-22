@@ -77,8 +77,9 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  getIndicators, getIntraday, getKline, getQuote, getStock, getStockNews, inWatchlist
+  getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
 } from '@/api'
+import { getPrefetchedOrFetch } from '@/utils/detailPrefetch'
 import type { Indicators, Intraday, KlineItem, NewsItem, Period, Quote, StockItem } from '@/api/types'
 import { changeClass, fmtAmount, fmtChange, fmtPercent, fmtPrice, fmtTime, fmtVolume } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
@@ -201,13 +202,19 @@ function stopPolling() {
 
 onMounted(async () => {
   try {
-    const [s] = await Promise.all([getStock(code), loadQuote()])
+    // 命中 touchstart/mouseenter 时预取的数据就直接复用，不再重新发起请求
+    const pre = getPrefetchedOrFetch(code)
+    const [s, , intr, newsList, favResult] = await Promise.all([
+      pre.stock,
+      pre.quote.then((q) => { quote.value = q }),
+      pre.intraday,
+      getStockNews(code, 10),
+      userStore.isLoggedIn() ? pre.stock.then((s) => inWatchlist(s.id)) : Promise.resolve(false)
+    ])
     stock.value = s
-    intraday.value = await getIntraday(code)
-    news.value = await getStockNews(code, 10)
-    if (userStore.isLoggedIn()) {
-      faved.value = await inWatchlist(s.id)
-    }
+    intraday.value = intr
+    news.value = newsList
+    faved.value = favResult
   } catch (e) {
     ui.toast((e as Error).message, 'error')
     router.back()
