@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>简牛行情</title>
+    <script>
+      // ① 首帧前应用主题：同步读设置（与 stores/settings.ts 的 KEY/规则一致），
+      //    深色用户不会先闪一下白、浅色用户不会先闪一下黑；
+      // ② 预连接 API 域名：前端在 Cloudflare Pages、后端在 Render 跨域部署，
+      //    提前完成 DNS + TCP + TLS 握手，首个数据请求省 100-300ms。
+      //    %VITE_API_BASE_URL% 由 Vite 构建时替换；本地 dev 走同源代理，
+      //    占位符不是 http 开头会被 if 跳过，不产生无效标签。
+      (function () {
+        try {
+          var raw = localStorage.getItem('app_settings_v1')
+          var s = raw ? JSON.parse(raw) : {}
+          var mode = s.themeMode || 'system'
+          var dark = mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var el = document.documentElement
+          el.dataset.theme = dark ? 'dark' : 'light'
+          el.dataset.accent = s.themeColor || 'blue'
+          el.dataset.price = s.priceColorMode || 'red-up'
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark'
+        }
+        var api = '%VITE_API_BASE_URL%'
+        if (api.indexOf('http') === 0) {
+          var pre = document.createElement('link')
+          pre.rel = 'preconnect'
+          pre.href = api
+          pre.crossOrigin = 'anonymous'
+          document.head.appendChild(pre)
+          var dns = document.createElement('link')
+          dns.rel = 'dns-prefetch'
+          dns.href = api
+          document.head.appendChild(dns)
+        }
+      })()
+    </script>
+    <style>
+      /* 首屏骨架关键 CSS（内联，不依赖任何 JS/外部资源）。
+         变量与 styles/base.css 同名同值，bundle 到达后无缝接管。 */
+      :root, html[data-theme="dark"] {
+        --bg: #0d1117; --card: #171f2b; --card-hover: #1d2735;
+        --border: #232e3f; --bg-soft: #131922;
+      }
+      html[data-theme="light"] {
+        --bg: #f4f6f9; --card: #ffffff; --card-hover: #f1f4f8;
+        --border: #e2e7ef; --bg-soft: #eceff4;
+      }
+      html, body { margin: 0; background: var(--bg); }
+      #app { min-height: 100vh; }
+      .sk-page {
+        max-width: 640px; margin: 0 auto; padding: 12px 14px;
+        box-sizing: border-box;
+      }
+      .sk {
+        background: linear-gradient(90deg, var(--card) 25%, var(--card-hover) 50%, var(--card) 75%);
+        background-size: 200% 100%;
+        animation: sk-shimmer 1.2s infinite;
+        border-radius: 12px;
+      }
+      @keyframes sk-shimmer { to { background-position: -200% 0; } }
+      .sk-bar { height: 44px; margin-bottom: 18px; }
+      .sk-idx { display: flex; gap: 8px; margin-bottom: 18px; }
+      .sk-idx .sk { flex: 1; height: 78px; }
+      .sk-card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 14px; padding: 12px 14px;
+      }
+      .sk-row { height: 34px; margin: 11px 0; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <!-- 纯 HTML/CSS 静态骨架：JS 下载/解析/执行期间就有"应用轮廓"，
+           Vue mount('#app') 时被真实内容整体替换，无需任何清理代码 -->
+      <div class="sk-page">
+        <div class="sk sk-bar"></div>
+        <div class="sk-idx"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
+        <div class="sk-card">
+          <div class="sk sk-row"></div>
+          <div class="sk sk-row"></div>
+          <div class="sk sk-row"></div>
+          <div class="sk sk-row"></div>
+          <div class="sk sk-row"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
