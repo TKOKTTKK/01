@@ -187,20 +187,36 @@ function render() {
 const settings = useSettingsStore()
 watch(() => [settings.priceColorMode, settings.themeMode, settings.themeColor], () => render())
 
+/**
+ * 容器尺寸监听：改用 ResizeObserver 而不是只监听 window resize。
+ *
+ * 【问题背景】echarts.init() 只在调用那一刻测量一次容器宽高，之后只有
+ * window 触发 resize 事件才会重新测量。但组件 onMounted 执行时，容器
+ * 有时还没完成布局（刚导航进页面、宽度还没被计算出来），这一刻拿到的
+ * 是 0 宽/0 高，画布就此"废掉"——后续 setOption 无论怎么填数据都不会
+ * 重新measure尺寸，表现为白屏，且不会自愈（因为没有任何 resize 事件
+ * 发生）。之前只能靠切换 Tab 销毁重建组件来"意外修复"。
+ *
+ * ResizeObserver 直接观察容器本身的尺寸变化，不管是首次布局延迟、
+ * KeepAlive 切回、还是窗口缩放，只要容器尺寸变化就会回调，比
+ * window resize 更可靠也覆盖更全。
+ */
+let ro: ResizeObserver | null = null
+
 onMounted(() => {
   if (el.value) {
     chart = echarts.init(el.value)
     render() // 无数据时内部走 renderEmpty()：坐标轴骨架立即可见
-    window.addEventListener('resize', resize)
+    ro = new ResizeObserver(() => chart?.resize())
+    ro.observe(el.value)
   }
 })
-
-function resize() { chart?.resize() }
 
 watch(() => props.data, render)
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', resize)
+  ro?.disconnect()
+  ro = null
   chart?.dispose()
   chart = null
 })

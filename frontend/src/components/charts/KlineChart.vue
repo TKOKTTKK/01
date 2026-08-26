@@ -190,20 +190,28 @@ function render() {
 const settings = useSettingsStore()
 watch(() => [settings.priceColorMode, settings.themeMode, settings.themeColor], () => render())
 
+/**
+ * 容器尺寸监听：改用 ResizeObserver 而不是只监听 window resize。
+ * 原因同 IntradayChart.vue —— onMounted 时容器可能还没有真实宽高，
+ * echarts.init() 拿到 0 尺寸后续无法自愈，导致偶发白屏。
+ * ResizeObserver 能在容器尺寸真正稳定下来的那一刻自动补一次 resize()。
+ */
+let ro: ResizeObserver | null = null
+
 onMounted(() => {
   if (el.value) {
     chart = echarts.init(el.value)
     render()
-    window.addEventListener('resize', resize)
+    ro = new ResizeObserver(() => chart?.resize())
+    ro.observe(el.value)
   }
 })
-
-function resize() { chart?.resize() }
 
 watch(() => [props.kline, props.indicators, props.sub], render, { deep: false })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', resize)
+  ro?.disconnect()
+  ro = null
   chart?.dispose()
   chart = null
 })

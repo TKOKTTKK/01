@@ -224,13 +224,29 @@ async function switchTab(t: Tab) {
 }
 
 /**
- * 空闲时后台预取日K + 指标：详情页默认停在分时，但很多用户下一步就是点"日K"。
- * 分时首帧渲染后、浏览器空闲时把日K装进本地缓存，点击切换即为零等待。
- * 省流量/2G 用户跳过。
+ * 空闲时后台预取 K线 + 指标：详情页默认停在分时，但用户大概率会去点
+ * 日K/周K/月K 中的某一个。
+ *
+ * 【v3.2 修复】之前只预热了 day，week/month 完全没有预取，导致用户
+ * 首次点击周K/月K时是现场发起请求，1-2 秒才出图——这才是"周K月K慢"
+ * 的真正原因，不是这两个周期的缓存没生效，而是它们从没被预热过。
+ *
+ * 现在三个周期都预热，但错开时间、串行触发（day 先、week/month 依次
+ * 排在后面的空闲时间片），避免一次性并发三组"K线+指标"请求抢占带宽，
+ * 也避免抢占分时图/新闻等首屏更重要请求的资源。
+ * 省流量/2G 用户依然整体跳过。
  */
 function warmKlineOnIdle() {
-  if (shouldSkipPreload() || klineCache.has('day')) return
-  onIdle(() => { loadKline('day').catch(() => { /* 静默，点击时会重试 */ }) }, 1200)
+  if (shouldSkipPreload()) return
+  const periods: Period[] = ['day', 'week', 'month']
+  let delay = 1200
+  for (const p of periods) {
+    if (klineCache.has(p)) continue
+    const period = p
+    const wait = delay
+    onIdle(() => { loadKline(period).catch(() => { /* 静默，点击时会重试 */ }) }, wait)
+    delay += 800 // 依次错开，串行让出空闲时间片
+  }
 }
 
 async function toggleFav() {
