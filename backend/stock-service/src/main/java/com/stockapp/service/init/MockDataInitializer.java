@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,9 +35,17 @@ import java.util.function.Function;
  * 1. 为每只股票生成 250 根日 K，并聚合出周 K / 月 K；
  * 2. 生成 Mock 新闻。
  * 已存在数据的股票自动跳过，不会产生重复（另有数据库唯一约束兜底）。
+ *
+ * v3.1：补齐逻辑抽出为公开的 {@link #catchUpAll()}，供 KlineWarmupJob
+ * 在每日跨天后调用 —— 之前只有重启才会补新一根日 K，长期在线的实例
+ * 会出现「分时昨收在走、DB K 线停在部署当天」的漂移；现在跨天由定时任务
+ * 主动补齐，K 线缓存（按日期分 key）随之立即命中新数据。
+ * {@code @Order(1)} 保证本初始化先于 KlineWarmupJob（@Order(2)）执行，
+ * 预热时缓存里装的一定是补齐后的数据。
  */
 @Slf4j
 @Component
+@Order(1)
 @RequiredArgsConstructor
 public class MockDataInitializer implements ApplicationRunner {
 
@@ -48,9 +57,28 @@ public class MockDataInitializer implements ApplicationRunner {
     private final StockNewsMapper newsMapper;
     private final MarketDataProvider provider;
 
+    /**
+     * 事务注解必须同时放在 run() 与 catchUpAll() 上：
+     * Spring 调 run() 走代理（本方法的事务生效），run() 内部对 catchUpAll()
+     * 是自调用、不过代理，靠的是外层 run() 的事务；定时任务从外部调
+     * catchUpAll() 时走代理，用的是 catchUpAll() 自己的事务。
+     */
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        catchUpAll();
+    }
+
+    /**
+     * 对全部股票补齐 K 线 + 初始化新闻（幂等，可重复调用）。
+     *
+     * synchronized：启动 Runner 与定时任务可能并发触发（极端时序下），
+     * 补齐涉及「删旧周K再插」两步写入，串行化最省心；正常情况下锁无竞争。
+     * 事务注解放在本方法上，外部经代理调用时生效；run() 内部自调用时
+     * 整个补齐过程也在 Runner 线程串行完成，唯一约束兜底重复插入。
+     */
+    @Transactional
+    public synchronized void catchUpAll() {
         if (!provider.isMock()) {
             log.info("当前数据源为 {}，跳过 Mock 数据初始化", provider.name());
             return;
@@ -60,7 +88,7 @@ public class MockDataInitializer implements ApplicationRunner {
             initKline(stock);
             initNews(stock);
         }
-        log.info("Mock 数据初始化完成，共 {} 只股票", stocks.size());
+        log.info("Mock 数据初始化/补齐完成，共 {} 只股票", stocks.size());
     }
 
     /**

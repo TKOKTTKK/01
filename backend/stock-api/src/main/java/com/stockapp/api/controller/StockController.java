@@ -3,6 +3,7 @@ package com.stockapp.api.controller;
 import com.stockapp.common.result.ErrorCode;
 import com.stockapp.common.exception.BizException;
 import com.stockapp.common.result.Result;
+import com.stockapp.common.vo.DetailBootstrapVO;
 import com.stockapp.common.vo.IndicatorVO;
 import com.stockapp.common.vo.IntradayVO;
 import com.stockapp.common.vo.KlineVO;
@@ -54,6 +55,29 @@ public class StockController {
     public Result<StockVO> detail(@PathVariable String code) {
         Stock stock = stockService.getByCode(code);
         return Result.success(stockService.toVO(stock));
+    }
+
+    /**
+     * 详情页首屏聚合：一次请求返回 stock + quote + intraday，
+     * 专门服务「首次打开详情页」的冷启动路径，替代前端原来的三次并行请求。
+     *
+     * 内部只做聚合，完全复用既有 Service：
+     * - stock 基础信息走 RedisKeys.INFO（6h）
+     * - quote 走 RedisKeys.QUOTE（10s）
+     * - intraday 走 RedisKeys.INTRADAY（30s）
+     * 三部分各自已有缓存，聚合层本身不再加一层 Redis：加了只能省两次
+     * Redis GET，却会把 10s/30s 两种新鲜度耦合到同一个 TTL 上，得不偿失。
+     */
+    @GetMapping("/{code}/detail-bootstrap")
+    public Result<DetailBootstrapVO> detailBootstrap(@PathVariable String code) {
+        Stock stock = stockService.getByCode(code);
+        QuoteVO quote = marketService.getQuote(stock.getCode(), stock.getName());
+        IntradayVO intraday = marketService.getIntraday(stock.getCode());
+        return Result.success(DetailBootstrapVO.builder()
+                .stock(stockService.toVO(stock, quote))
+                .quote(quote)
+                .intraday(intraday)
+                .build());
     }
 
     /** 实时行情 */

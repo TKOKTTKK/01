@@ -26,8 +26,11 @@ type IdleWindow = Window & {
   requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
 }
 
-/** requestIdleCallback 的降级封装（Safari 直到 16.4 才支持） */
-function onIdle(cb: () => void, timeout = 2000): void {
+/**
+ * requestIdleCallback 的降级封装（Safari 直到 16.4 才支持）。
+ * 供路由预载 / 数据预取（viewportPrefetch、详情页日K预取）共用。
+ */
+export function onIdle(cb: () => void, timeout = 2000): void {
   const w = window as IdleWindow
   if (typeof w.requestIdleCallback === 'function') {
     w.requestIdleCallback(cb, { timeout })
@@ -36,8 +39,11 @@ function onIdle(cb: () => void, timeout = 2000): void {
   }
 }
 
-/** 用户开启了省流量模式 / 处于 2G 慢网时，不做预加载 */
-function shouldSkip(): boolean {
+/**
+ * 用户开启了省流量模式 / 处于 2G 慢网时，跳过一切「预」动作
+ * （路由 chunk 预载、可见即取、日K后台预取共用同一判定）。
+ */
+export function shouldSkipPreload(): boolean {
   const conn = (navigator as Navigator & {
     connection?: { saveData?: boolean; effectiveType?: string }
   }).connection
@@ -51,7 +57,7 @@ function shouldSkip(): boolean {
  * 避免一次性并发十几个请求挤占行情 API 的带宽。
  */
 export function startIdlePreload(): void {
-  if (shouldSkip()) return
+  if (shouldSkipPreload()) return
   let i = 0
   const next = () => {
     if (i >= PRELOAD_ORDER.length) return

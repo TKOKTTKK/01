@@ -1,6 +1,6 @@
 import { request } from './http'
 import type {
-  Indicators, Intraday, KlineItem, MarketIndex,
+  DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, Period, Quote, SimAccount, SimCashFlow, SimPosition,
   SimPortfolio, SimTrade, StockItem, TokenData, UserInfo
 } from './types'
@@ -17,6 +17,10 @@ export const getQuote = (code: string) => request<Quote>({ url: `/api/stocks/${c
 
 export const getIntraday = (code: string) =>
   request<Intraday>({ url: `/api/stocks/${code}/intraday` })
+
+/** 详情页首屏聚合：一次请求拿到 stock + quote + intraday（冷启动专用） */
+export const getDetailBootstrap = (code: string) =>
+  request<DetailBootstrap>({ url: `/api/stocks/${code}/detail-bootstrap` })
 
 export const getKline = (code: string, period: Period, limit = 250) =>
   request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit } })

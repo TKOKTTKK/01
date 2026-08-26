@@ -1,5 +1,5 @@
 <template>
-  <div class="row" @click="$router.push(`/stock/${stock.code}`)"
+  <div ref="rowEl" class="row" @click="open"
     @touchstart.passive="onTouch" @mouseenter="onTouch">
     <div class="left">
       <div class="name">{{ stock.name }}</div>
@@ -14,19 +14,45 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { preloadView } from '@/router'
 import { prefetchStockDetail } from '@/utils/detailPrefetch'
-import { computed } from 'vue'
+import { observeStockRow, unobserveStockRow } from '@/utils/viewportPrefetch'
 import type { StockItem } from '@/api/types'
 import { changeClass, fmtPercent, fmtPrice } from '@/utils/format'
 
 const props = defineProps<{ stock: StockItem }>()
+const router = useRouter()
+const rowEl = ref<HTMLDivElement | null>(null)
 const cls = computed(() => changeClass(props.stock.changePercent))
 
+/**
+ * 数据接力：跳转时把列表已持有的行情快照塞进路由 state，
+ * 详情页 onMounted 前就能用它渲染价格区（零网络等待），
+ * 随后正式请求返回时静默替换。
+ * seedTs 用于详情页判定新鲜度（刷新恢复的 history.state 可能很旧）。
+ */
+function open() {
+  router.push({
+    path: `/stock/${props.stock.code}`,
+    state: { seed: { ...props.stock }, seedTs: Date.now() }
+  })
+}
+
+/** 即将点击：预载详情页 chunk + deep 预取（bootstrap + 日K + 指标） */
 function onTouch() {
   preloadView('stock')
-  prefetchStockDetail(props.stock.code)
+  prefetchStockDetail(props.stock.code, { deep: true })
 }
+
+// 可见即取：行进入视口即预取 detail-bootstrap（预算与节流见 viewportPrefetch）
+onMounted(() => {
+  if (rowEl.value) observeStockRow(rowEl.value, () => props.stock.code)
+})
+onBeforeUnmount(() => {
+  if (rowEl.value) unobserveStockRow(rowEl.value)
+})
 </script>
 
 <style scoped>

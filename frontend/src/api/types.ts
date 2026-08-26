@@ -62,6 +62,13 @@ export interface Indicators {
   rsi: { rsi6: (number | null)[]; rsi12: (number | null)[]; rsi24: (number | null)[] }
 }
 
+/** 详情页首屏聚合数据（GET /api/stocks/{code}/detail-bootstrap） */
+export interface DetailBootstrap {
+  stock: StockItem
+  quote: Quote
+  intraday: Intraday
+}
+
 export interface MarketIndex {
   code: string
   name: string

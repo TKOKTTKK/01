@@ -4,27 +4,31 @@
     <div class="nav">
       <button class="back" @click="$router.back()">‹</button>
       <div class="title">
-        <div class="tname">{{ quote?.name || code }}</div>
+        <div class="tname">{{ view.name || code }}</div>
         <div class="tcode">{{ code }} <span v-if="quote?.mock" class="mock-badge">模拟行情</span></div>
       </div>
     </div>
 
-    <!-- 价格区 -->
-    <div class="price-block" v-if="quote">
-      <div class="big" :class="cls">{{ fmtPrice(quote.price) }}</div>
+    <!--
+      价格区：数据接力（路由 state 里的列表快照）或正式行情，谁先有谁先渲染。
+      seed 只有 价格/涨跌 两个核心字段，其余统计项在 quote 到达前显示 "--"，
+      quote 到达后静默补全（同一套 DOM，无跳变）。
+    -->
+    <div class="price-block" v-if="quote || seed">
+      <div class="big" :class="cls">{{ fmtPrice(view.price) }}</div>
       <div class="chg" :class="cls">
-        {{ fmtChange(quote.changeAmount) }}&nbsp;&nbsp;{{ fmtPercent(quote.changePercent) }}
+        {{ fmtChange(view.changeAmount) }}&nbsp;&nbsp;{{ fmtPercent(view.changePercent) }}
       </div>
       <div class="stats">
-        <span>今开 <b>{{ fmtPrice(quote.openPrice) }}</b></span>
-        <span>昨收 <b>{{ fmtPrice(quote.preClose) }}</b></span>
-        <span>最高 <b class="up">{{ fmtPrice(quote.highPrice) }}</b></span>
-        <span>最低 <b class="down">{{ fmtPrice(quote.lowPrice) }}</b></span>
-        <span>成交量 <b>{{ fmtVolume(quote.volume) }}</b></span>
-        <span>成交额 <b>{{ fmtAmount(quote.amount) }}</b></span>
+        <span>今开 <b>{{ fmtPrice(view.openPrice) }}</b></span>
+        <span>昨收 <b>{{ fmtPrice(view.preClose) }}</b></span>
+        <span>最高 <b class="up">{{ fmtPrice(view.highPrice) }}</b></span>
+        <span>最低 <b class="down">{{ fmtPrice(view.lowPrice) }}</b></span>
+        <span>成交量 <b>{{ fmtVolume(view.volume) }}</b></span>
+        <span>成交额 <b>{{ fmtAmount(view.amount) }}</b></span>
       </div>
       <div class="stats" v-if="statsExpanded">
-        <span>涨跌额 <b :class="cls">{{ fmtChange(quote.changeAmount) }}</b></span>
+        <span>涨跌额 <b :class="cls">{{ fmtChange(view.changeAmount) }}</b></span>
         <span>振幅 <b>{{ amplitude }}</b></span>
         <span>均价 <b>{{ avgDealPrice }}</b></span>
       </div>
@@ -40,11 +44,12 @@
         @click="switchTab(t.key)">{{ t.label }}</button>
     </div>
 
-    <!-- 图表 -->
+    <!-- 图表：分时图容器始终立即挂载（数据未到时先画坐标轴骨架，见 IntradayChart） -->
     <div class="card" style="padding: 8px 4px;">
       <IntradayChart v-if="tab === 'intraday'" :data="intraday" />
       <template v-else>
-        <KlineChart :kline="kline" :indicators="indicators" :sub="sub" />
+        <KlineChart v-if="kline.length" :kline="kline" :indicators="indicators" :sub="sub" />
+        <div v-else class="skeleton" style="height:300px;margin:0 8px"></div>
         <div class="seg" style="margin: 8px 8px 4px;">
           <button v-for="s in subs" :key="s" :class="{ active: sub === s }" @click="sub = s">{{ s }}</button>
         </div>
@@ -77,9 +82,10 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
+  getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
 } from '@/api'
-import { getPrefetchedOrFetch } from '@/utils/detailPrefetch'
+import { getFreshEntry, getPrefetchedOrFetch } from '@/utils/detailPrefetch'
+import { onIdle, shouldSkipPreload } from '@/utils/preload'
 import type { Indicators, Intraday, KlineItem, NewsItem, Period, Quote, StockItem } from '@/api/types'
 import { changeClass, fmtAmount, fmtChange, fmtPercent, fmtPrice, fmtTime, fmtVolume } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
@@ -99,6 +105,23 @@ const watchlistStore = useWatchlistStore()
 const ui = useUiStore()
 const code = String(route.params.code)
 
+/**
+ * 数据接力落地：同步读取路由 state 里列表带过来的行情快照。
+ * 必须在 setup 里同步读（此时 history.state 就是本次导航写入的值）；
+ * 校验 code 匹配 + 30 秒新鲜度（防止刷新后浏览器恢复的陈旧 state）。
+ */
+function readSeed(): StockItem | null {
+  try {
+    const st = window.history.state as { seed?: StockItem; seedTs?: number } | null
+    if (st && st.seed && st.seed.code === code
+      && typeof st.seedTs === 'number' && Date.now() - st.seedTs < 30_000) {
+      return st.seed
+    }
+  } catch { /* state 不可读则忽略 */ }
+  return null
+}
+
+const seed = ref<StockItem | null>(readSeed())
 const quote = ref<Quote | null>(null)
 const stock = ref<StockItem | null>(null)
 const intraday = ref<Intraday | null>(null)
@@ -119,7 +142,25 @@ const tabs: { key: Tab; label: string }[] = [
 const subs = ['MACD', 'KDJ', 'RSI'] as const
 const sub = ref<'MACD' | 'KDJ' | 'RSI'>('MACD')
 
-const cls = computed(() => changeClass(quote.value?.changePercent))
+/** 展示层合并：正式 quote 优先，未到达时用 seed 的核心字段，其余为 null（显示 --） */
+const view = computed(() => {
+  const q = quote.value
+  const s = seed.value
+  return {
+    name: q?.name ?? s?.name ?? '',
+    price: q?.price ?? s?.price ?? null,
+    changeAmount: q?.changeAmount ?? s?.changeAmount ?? null,
+    changePercent: q?.changePercent ?? s?.changePercent ?? null,
+    openPrice: q?.openPrice ?? null,
+    preClose: q?.preClose ?? null,
+    highPrice: q?.highPrice ?? null,
+    lowPrice: q?.lowPrice ?? null,
+    volume: q?.volume ?? null,
+    amount: q?.amount ?? null
+  }
+})
+
+const cls = computed(() => changeClass(view.value.changePercent))
 const amplitude = computed(() => {
   const q = quote.value
   if (!q || !q.preClose) return '--'
@@ -133,9 +174,36 @@ const avgDealPrice = computed(() => {
 
 let timer: number | undefined
 const klineCache = new Map<Period, { k: KlineItem[]; i: Indicators }>()
+const klineInflight = new Map<Period, Promise<{ k: KlineItem[]; i: Indicators }>>()
 
 async function loadQuote() {
   try { quote.value = await getQuote(code) } catch { /* 保持已有数据 */ }
+}
+
+/**
+ * K线 + 指标加载：本地缓存 -> 在途请求 -> deep 预取（day）-> 现场请求。
+ * 所有路径写入同一个 klineCache，切换周期二次进入零请求。
+ */
+function loadKline(period: Period): Promise<{ k: KlineItem[]; i: Indicators }> {
+  const cached = klineCache.get(period)
+  if (cached) return Promise.resolve(cached)
+  const inflight = klineInflight.get(period)
+  if (inflight) return inflight
+
+  const pre = period === 'day' ? getFreshEntry(code) : null
+  const source: Promise<[KlineItem[], Indicators]> = pre?.klineDay && pre.indicatorsDay
+    ? Promise.all([pre.klineDay, pre.indicatorsDay])
+    : Promise.all([getKline(code, period), getIndicators(code, period)])
+
+  const p = source
+    .then(([k, i]) => {
+      const v = { k, i }
+      klineCache.set(period, v)
+      return v
+    })
+    .finally(() => klineInflight.delete(period))
+  klineInflight.set(period, p)
+  return p
 }
 
 async function switchTab(t: Tab) {
@@ -145,19 +213,24 @@ async function switchTab(t: Tab) {
       if (!intraday.value) intraday.value = await getIntraday(code)
       return
     }
-    const cached = klineCache.get(t)
-    if (cached) {
-      kline.value = cached.k
-      indicators.value = cached.i
-      return
+    const v = await loadKline(t)
+    if (tab.value === t) { // 等待期间用户又切走了就不覆盖
+      kline.value = v.k
+      indicators.value = v.i
     }
-    const [k, i] = await Promise.all([getKline(code, t), getIndicators(code, t)])
-    klineCache.set(t, { k, i })
-    kline.value = k
-    indicators.value = i
   } catch (e) {
     ui.toast((e as Error).message, 'error')
   }
+}
+
+/**
+ * 空闲时后台预取日K + 指标：详情页默认停在分时，但很多用户下一步就是点"日K"。
+ * 分时首帧渲染后、浏览器空闲时把日K装进本地缓存，点击切换即为零等待。
+ * 省流量/2G 用户跳过。
+ */
+function warmKlineOnIdle() {
+  if (shouldSkipPreload() || klineCache.has('day')) return
+  onIdle(() => { loadKline('day').catch(() => { /* 静默，点击时会重试 */ }) }, 1200)
 }
 
 async function toggleFav() {
@@ -200,34 +273,60 @@ function stopPolling() {
   timer = undefined
 }
 
-onMounted(async () => {
-  try {
-    // 命中 touchstart/mouseenter 时预取的数据就直接复用，不再重新发起请求
-    const pre = getPrefetchedOrFetch(code)
-    const [s, , intr, newsList, favResult] = await Promise.all([
-      pre.stock,
-      pre.quote.then((q) => { quote.value = q }),
-      pre.intraday,
-      getStockNews(code, 10),
-      userStore.isLoggedIn() ? pre.stock.then((s) => inWatchlist(s.id)) : Promise.resolve(false)
-    ])
-    stock.value = s
-    intraday.value = intr
-    news.value = newsList
-    faved.value = favResult
-  } catch (e) {
-    ui.toast((e as Error).message, 'error')
-    router.back()
-    return
+onMounted(() => {
+  // 命中预取（可见即取 / touchstart）就直接复用，否则此刻发起 detail-bootstrap。
+  // 各数据源到达即渲染，不再用 Promise.all 等全部到齐：
+  // 价格区（seed 已先画）-> quote 覆盖 -> 分时折线 -> 新闻，逐段点亮。
+  const pre = getPrefetchedOrFetch(code)
+
+  pre.quote.then(q => { quote.value = q }).catch(() => { /* 价格区保留 seed，轮询会重试 */ })
+  pre.intraday.then(v => { intraday.value = v }).catch(() => { /* 图表保持骨架 */ })
+
+  // stock 是页面基础（自选/交易都依赖 id），拿不到才视为致命错误退回
+  pre.stock
+    .then(async (s) => {
+      stock.value = s
+      if (userStore.isLoggedIn()) {
+        faved.value = await inWatchlist(s.id).catch(() => false)
+      }
+    })
+    .catch((e) => {
+      ui.toast((e as Error).message, 'error')
+      router.back()
+    })
+
+  getStockNews(code, 10)
+    .then(list => { news.value = list })
+    .catch(() => { /* 新闻缺失不影响主内容，显示"暂无" */ })
+
+  // touchstart deep 预取过的日K直接装进本地缓存；没有则空闲时补一手
+  const fresh = getFreshEntry(code)
+  if (fresh?.klineDay && fresh.indicatorsDay) {
+    Promise.all([fresh.klineDay, fresh.indicatorsDay])
+      .then(([k, i]) => { if (!klineCache.has('day')) klineCache.set('day', { k, i }) })
+      .catch(() => { /* 静默 */ })
   }
+  warmKlineOnIdle()
+
   startPolling()
 })
 
 // KeepAlive：切走停止轮询省流量，切回来立即刷新并恢复轮询（页面状态保留）
 onActivated(() => {
   if (stock.value) {
-    loadQuote()
-    if (tab.value === 'intraday') getIntraday(code).then(v => { intraday.value = v }).catch(() => { /* 静默 */ })
+    // 一次 bootstrap 同时刷新 quote + 分时（替代原来的两次独立请求）；
+    // 失败（如后端旧版本）降级为原来的两个独立接口
+    getDetailBootstrap(code)
+      .then(b => {
+        quote.value = b.quote
+        if (tab.value === 'intraday') intraday.value = b.intraday
+      })
+      .catch(() => {
+        loadQuote()
+        if (tab.value === 'intraday') {
+          getIntraday(code).then(v => { intraday.value = v }).catch(() => { /* 静默 */ })
+        }
+      })
     startPolling()
   }
 })
