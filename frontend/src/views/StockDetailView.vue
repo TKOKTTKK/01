@@ -245,7 +245,7 @@ function warmKlineOnIdle() {
     const period = p
     const wait = delay
     onIdle(() => { loadKline(period).catch(() => { /* 静默，点击时会重试 */ }) }, wait)
-    delay += 200 // 依次错开，串行让出空闲时间片
+    delay += 800 // 依次错开，串行让出空闲时间片
   }
 }
 
