@@ -327,26 +327,32 @@ onMounted(() => {
   startPolling()
 })
 
-// KeepAlive：切走停止轮询省流量，切回来立即刷新并恢复轮询（页面状态保留）
+// KeepAlive：切走停止轮询省流量，切回来立即刷新并恢复轮询
+// tab 不在保留状态之列：切走时重置为分时图，下次进来（不管是不是同一只
+// 股票）第一眼看到的都是分时图，跟行业里大部分行情 App 的默认预期一致；
+// K线数据缓存（klineCache）本身不清，只是视图归位，真去点日K/周K/月K
+// 时依然是命中缓存的零等待。
 onActivated(() => {
   if (stock.value) {
     // 一次 bootstrap 同时刷新 quote + 分时（替代原来的两次独立请求）；
     // 失败（如后端旧版本）降级为原来的两个独立接口
+    // 上面已把 tab 重置为 intraday，这里必然要刷新分时
     getDetailBootstrap(code)
       .then(b => {
         quote.value = b.quote
-        if (tab.value === 'intraday') intraday.value = b.intraday
+        intraday.value = b.intraday
       })
       .catch(() => {
         loadQuote()
-        if (tab.value === 'intraday') {
-          getIntraday(code).then(v => { intraday.value = v }).catch(() => { /* 静默 */ })
-        }
+        getIntraday(code).then(v => { intraday.value = v }).catch(() => { /* 静默 */ })
       })
     startPolling()
   }
 })
-onDeactivated(stopPolling)
+onDeactivated(() => {
+  stopPolling()
+  tab.value = 'intraday'
+})
 onUnmounted(stopPolling)
 </script>
 
