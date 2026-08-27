@@ -85,6 +85,7 @@ import {
   getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
 } from '@/api'
 import { getFreshEntry, getPrefetchedOrFetch } from '@/utils/detailPrefetch'
+import { readIntradayDiskCache } from '@/utils/intradayDiskCache'
 import { onIdle, shouldSkipPreload } from '@/utils/preload'
 import type { Indicators, Intraday, KlineItem, NewsItem, Period, Quote, StockItem } from '@/api/types'
 import { changeClass, fmtAmount, fmtChange, fmtPercent, fmtPrice, fmtTime, fmtVolume } from '@/utils/format'
@@ -124,7 +125,13 @@ function readSeed(): StockItem | null {
 const seed = ref<StockItem | null>(readSeed())
 const quote = ref<Quote | null>(null)
 const stock = ref<StockItem | null>(null)
-const intraday = ref<Intraday | null>(null)
+/**
+ * 分时图 0ms 打开：跟 seed 价格接力同一个思路，setup 阶段同步读一次
+ * 磁盘缓存（见 intradayDiskCache.ts）。命中的话 IntradayChart 挂载那一刻
+ * props.data 已经有值，直接画真实曲线，不用先走坐标轴骨架；
+ * 网络请求（预取或本次现发）返回后照常静默覆盖成最新数据。
+ */
+const intraday = ref<Intraday | null>(readIntradayDiskCache(code))
 const kline = ref<KlineItem[]>([])
 const indicators = ref<Indicators | null>(null)
 const news = ref<NewsItem[]>([])
@@ -245,7 +252,7 @@ function warmKlineOnIdle() {
     const period = p
     const wait = delay
     onIdle(() => { loadKline(period).catch(() => { /* 静默，点击时会重试 */ }) }, wait)
-    delay += 200 // 依次错开，串行让出空闲时间片
+    delay += 800 // 依次错开，串行让出空闲时间片
   }
 }
 
