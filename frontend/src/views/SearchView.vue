@@ -22,8 +22,14 @@
 
       <div class="section-title">全部股票</div>
       <div class="card" style="padding: 2px 14px;">
-        <StockRow v-for="s in market.stocks" :key="s.id" :stock="s" />
-        <div v-if="!market.stocks.length" class="skeleton" style="height:160px;margin:10px 0"></div>
+        <VirtualStockList
+          v-if="market.stocks.length"
+          :items="market.stocks"
+          :has-more="market.stocksHasMore"
+          :loading-more="market.stocksLoadingMore"
+          @load-more="market.loadMoreStocks()"
+        />
+        <div v-else class="skeleton" style="height:160px;margin:10px 0"></div>
       </div>
     </template>
   </div>
@@ -35,6 +41,7 @@ import { searchStocks } from '@/api'
 import type { StockItem } from '@/api/types'
 import { useMarketStore } from '@/stores/market'
 import StockRow from '@/components/StockRow.vue'
+import VirtualStockList from '@/components/VirtualStockList.vue'
 
 defineOptions({ name: 'SearchView' })
 

@@ -8,6 +8,7 @@ import com.stockapp.common.vo.IndicatorVO;
 import com.stockapp.common.vo.IntradayVO;
 import com.stockapp.common.vo.KlineVO;
 import com.stockapp.common.vo.NewsVO;
+import com.stockapp.common.vo.PageResult;
 import com.stockapp.common.vo.QuoteVO;
 import com.stockapp.common.vo.StockVO;
 import com.stockapp.dao.entity.Stock;
@@ -44,10 +45,15 @@ public class StockController {
         return Result.success(stockService.search(kw));
     }
 
-    /** 股票列表 */
+    /**
+     * 股票列表（分页）：page 从 1 开始，size 默认 50、上限由 StockService 收敛。
+     * 股票池扩到几千只后，前端"全部股票"改成滚动加载 + 虚拟列表，
+     * 这个接口的返回条数因此固定在 size，不再随股票总数增长。
+     */
     @GetMapping
-    public Result<List<StockVO>> list() {
-        return Result.success(stockService.listAll());
+    public Result<PageResult<StockVO>> list(@RequestParam(defaultValue = "1") int page,
+                                            @RequestParam(defaultValue = "50") int size) {
+        return Result.success(stockService.listPage(page, size));
     }
 
     /** 股票详情 */

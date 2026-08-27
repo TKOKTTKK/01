@@ -1,10 +1,12 @@
 package com.stockapp.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.stockapp.common.constant.RedisKeys;
 import com.stockapp.common.exception.BizException;
 import com.stockapp.common.result.ErrorCode;
+import com.stockapp.common.vo.PageResult;
 import com.stockapp.common.vo.QuoteVO;
 import com.stockapp.common.vo.StockVO;
 import com.stockapp.dao.entity.Stock;
@@ -13,17 +15,22 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /** 股票基础信息：搜索 / 列表 / 详情 */
 @Service
 @RequiredArgsConstructor
 public class StockService {
 
+    /** 「全部股票」分页接口的单页上限，防止绕过前端直接传超大 size 打满一次查询 */
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final StockMapper stockMapper;
     private final MarketService marketService;
     private final RedisCacheHelper cache;
 
-    /** 按代码或名称模糊搜索（code/name 均有索引） */
+    /** 按代码或名称模糊搜索（code/name 均有索引），本身已有 LIMIT 20，量级与股票池大小无关 */
     public List<StockVO> search(String keyword) {
         LambdaQueryWrapper<Stock> qw = new LambdaQueryWrapper<Stock>()
                 .eq(Stock::getStatus, 1)
@@ -33,10 +40,28 @@ public class StockService {
         return withQuote(stockMapper.selectList(qw));
     }
 
+    /**
+     * 全量股票列表（内部用途：热门榜单排序、K线预热选股范围等genuinely需要
+     * 拿到全集的场景）。这里不分页是因为调用方本来就要处理全集；真正暴露给
+     * 前端"浏览全部股票"的是下面的 {@link #listPage}。
+     * withQuote 内部已经是批量取行情，即使全量调用也不会退化成 N 次串行 Redis。
+     */
     public List<StockVO> listAll() {
         return withQuote(stockMapper.selectList(
                 new LambdaQueryWrapper<Stock>().eq(Stock::getStatus, 1)
                         .orderByAsc(Stock::getId)));
+    }
+
+    /**
+     * 分页股票列表：GET /api/stocks 的实现，前端"全部股票"长列表用这个。
+     * 股票池多大，单次响应体和查询开销都固定在 size，不会随总数线性增长。
+     */
+    public PageResult<StockVO> listPage(int page, int size) {
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        Page<Stock> result = stockMapper.selectPage(new Page<>(safePage, safeSize),
+                new LambdaQueryWrapper<Stock>().eq(Stock::getStatus, 1).orderByAsc(Stock::getId));
+        return PageResult.of(withQuote(result.getRecords()), result.getTotal(), safePage, safeSize);
     }
 
     /**
@@ -97,7 +122,27 @@ public class StockService {
                 .build();
     }
 
+    /**
+     * 批量补充行情：改用 marketService.getQuotes 一次性取一批，替代原来
+     * 每只股票单独调 toVO -> marketService.getQuote 串行打 N 次 Redis。
+     * 8 只股票感觉不到差别，几千只时这一处就是几秒延迟的直接来源。
+     */
     private List<StockVO> withQuote(List<Stock> stocks) {
-        return stocks.stream().map(this::toVO).toList();
+        if (stocks.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> nameByCode = stocks.stream()
+                .collect(Collectors.toMap(Stock::getCode, Stock::getName, (a, b) -> a));
+        Map<String, QuoteVO> quotes = marketService.getQuotes(nameByCode);
+        return stocks.stream()
+                .map(s -> {
+                    QuoteVO q = quotes.get(s.getCode());
+                    // 批量回源里极少数单只失败时的兜底，不影响其余股票正常返回
+                    if (q == null) {
+                        q = marketService.getQuote(s.getCode(), s.getName());
+                    }
+                    return toVO(s, q);
+                })
+                .toList();
     }
 }

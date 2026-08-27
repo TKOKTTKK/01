@@ -23,6 +23,17 @@ public class WatchlistService {
     private final UserWatchlistMapper watchlistMapper;
     private final StockService stockService;
 
+    /**
+     * 全站去重的自选股 id 集合（跨所有用户），不区分是谁选的。
+     * 供 K 线预热任务收敛"该优先预热哪些股票"用——股票池很大时没必要
+     * 全量预热，用户实际自选过的股票是最该优先保证零等待的一批。
+     */
+    public List<Long> distinctStockIds() {
+        return watchlistMapper.selectList(new LambdaQueryWrapper<UserWatchlist>()
+                        .select(UserWatchlist::getStockId))
+                .stream().map(UserWatchlist::getStockId).distinct().toList();
+    }
+
     public List<StockVO> list(Long userId) {
         List<UserWatchlist> rows = watchlistMapper.selectList(
                 new LambdaQueryWrapper<UserWatchlist>()

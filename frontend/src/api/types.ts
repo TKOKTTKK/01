@@ -1,5 +1,13 @@
 /** 与后端 VO 对应的类型定义 */
 
+/** 通用分页结果，对应后端 PageResult<T> */
+export interface PageResult<T> {
+  list: T[]
+  total: number
+  page: number
+  size: number
+}
+
 export interface StockItem {
   id: number
   code: string

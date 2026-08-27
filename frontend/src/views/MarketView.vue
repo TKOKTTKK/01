@@ -13,7 +13,13 @@
 
     <div class="section-title">全部股票</div>
     <div class="card" style="padding: 2px 14px;">
-      <StockRow v-for="s in market.stocks" :key="s.id" :stock="s" />
+      <VirtualStockList
+        v-if="market.stocks.length"
+        :items="market.stocks"
+        :has-more="market.stocksHasMore"
+        :loading-more="market.stocksLoadingMore"
+        @load-more="market.loadMoreStocks()"
+      />
       <div v-if="!market.stocks.length && market.error" class="error-block">
         <p>行情加载失败</p>
         <button @click="market.refresh()">重新加载</button>
@@ -27,7 +33,7 @@
 import { onActivated, onMounted } from 'vue'
 import { useMarketStore } from '@/stores/market'
 import IndexCard from '@/components/IndexCard.vue'
-import StockRow from '@/components/StockRow.vue'
+import VirtualStockList from '@/components/VirtualStockList.vue'
 
 defineOptions({ name: 'MarketView' })
 

@@ -2,7 +2,10 @@ package com.stockapp.job;
 
 import com.stockapp.dao.entity.Stock;
 import com.stockapp.dao.mapper.StockMapper;
+import com.stockapp.service.HotStockService;
 import com.stockapp.service.KlineService;
+import com.stockapp.service.StockService;
+import com.stockapp.service.WatchlistService;
 import com.stockapp.service.init.MockDataInitializer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +15,9 @@ import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * K 线 / 指标缓存预热任务。
@@ -33,10 +38,14 @@ import java.util.List;
  *    （周六/周日/周一的「应有最新交易日」都是上周五）的场景。
  *    过期到重装填的空窗内用户请求只是直查一次 DB（毫秒级），无感。
  *
- * 当前全量只有 8 只股票，直接全部预热（8 股 × 3 周期，指标固定预热前端
- * 唯一使用的 limit=250）；将来股票池扩大再收敛到热门股 + 自选股集合。
- * Redis 不可用时 RedisCacheHelper 自动降级，本任务只会多打几条 warn 日志，
- * 不影响任何在线请求。
+ * 【v2 收敛策略】全量预热是 O(股票数 × 周期数)，股票池小的时候（早期/测试
+ * 环境）直接全量最简单可靠；股票池一旦扩大到几千只，3 个周期 × 2 个接口
+ * 全量跑一遍会有数万次缓存计算，拖慢启动/唤醒时间。超过
+ * {@link #FULL_WARM_THRESHOLD} 后收敛到"大概率会被访问"的子集：
+ * 热门股（涨跌幅靠前，见 HotStockService）+ 全站用户自选股的并集。
+ * 不在这个子集里的股票不是不能访问，只是没有预热——用户点进详情页时
+ * 现算一次（毫秒级）写入缓存，之后访问一样是零等待，只是「谁先访问谁
+ * 触发那一次」，不影响正确性，只是没有"抢跑"。
  */
 @Slf4j
 @Component
@@ -47,10 +56,17 @@ public class KlineWarmupJob implements ApplicationRunner {
     private static final List<String> PERIODS = List.of("day", "week", "month");
     /** 前端 api/index.ts 固定传 limit=250，也是接口的默认值 */
     private static final int WARM_LIMIT = 250;
+    /** 股票总数不超过这个阈值时，收敛没有意义，直接全量预热 */
+    private static final int FULL_WARM_THRESHOLD = 200;
+    /** 热门股预热范围：比首页展示的 6 只更宽，覆盖用户点进"热门"里随便点开的情况 */
+    private static final int HOT_WARM_LIMIT = 50;
 
     private final StockMapper stockMapper;
     private final KlineService klineService;
     private final MockDataInitializer mockDataInitializer;
+    private final HotStockService hotStockService;
+    private final WatchlistService watchlistService;
+    private final StockService stockService;
 
     /** 启动预热：MockDataInitializer(@Order(1)) 已先完成补齐，这里直接热缓存 */
     @Override
@@ -78,8 +94,10 @@ public class KlineWarmupJob implements ApplicationRunner {
     private void warmAll(String reason) {
         long start = System.currentTimeMillis();
         List<Stock> stocks = stockMapper.selectList(null);
+        List<Stock> targets = stocks.size() <= FULL_WARM_THRESHOLD ? stocks : narrowToPriority(stocks);
+
         int ok = 0;
-        for (Stock stock : stocks) {
+        for (Stock stock : targets) {
             try {
                 for (String period : PERIODS) {
                     // getKline 写入全量序列缓存；getIndicators 复用它并写入指标缓存
@@ -91,7 +109,24 @@ public class KlineWarmupJob implements ApplicationRunner {
                 log.error("K线预热失败: code={}, err={}", stock.getCode(), e.getMessage());
             }
         }
-        log.info("{}完成: {}/{} 只股票, 耗时 {}ms",
-                reason, ok, stocks.size(), System.currentTimeMillis() - start);
+        log.info("{}完成: {}/{} 只股票预热（股票池共 {} 只）, 耗时 {}ms",
+                reason, ok, targets.size(), stocks.size(), System.currentTimeMillis() - start);
+    }
+
+    /** 收敛到热门股 + 全站自选股的并集；任一来源取失败都不影响另一来源，也不影响主流程 */
+    private List<Stock> narrowToPriority(List<Stock> stocks) {
+        Set<String> priorityCodes = new LinkedHashSet<>();
+        try {
+            hotStockService.hot(HOT_WARM_LIMIT).forEach(s -> priorityCodes.add(s.getCode()));
+        } catch (Exception e) {
+            log.warn("预热收敛：获取热门股失败，跳过热门股部分: {}", e.getMessage());
+        }
+        try {
+            List<Long> watchedIds = watchlistService.distinctStockIds();
+            stockService.mapByIds(watchedIds).values().forEach(s -> priorityCodes.add(s.getCode()));
+        } catch (Exception e) {
+            log.warn("预热收敛：获取自选股集合失败，跳过自选股部分: {}", e.getMessage());
+        }
+        return stocks.stream().filter(s -> priorityCodes.contains(s.getCode())).toList();
     }
 }

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { getHotStocks, getMarketIndex, listStocks } from '@/api'
 import type { MarketIndex, StockItem } from '@/api/types'
 import { useUserStore } from './user'
@@ -7,19 +7,32 @@ import { useWatchlistStore } from './watchlist'
 
 const CACHE_KEY = 'market_cache_v1'
 const REFRESH_MS = 10000
+/** 「全部股票」每页条数，需跟 VirtualStockList 的滚动加载步长一致 */
+const STOCKS_PAGE_SIZE = 50
 
 /**
  * 全局行情 Store：首页/行情页/自选页共用，避免各页面重复请求。
  * Stale-While-Revalidate：启动时先展示本地缓存，后台刷新后局部更新。
+ *
+ * 【v2 分页化】stocks 不再是"全部股票"，而是"目前已经滚动加载出来的
+ * 前若干页"——股票池扩到几千只后，不管是一次性拉全量列表还是每 10 秒
+ * 轮询全量，都会随股票总数线性变慢。现在只保证"用户已经看到的部分"
+ * 保持新鲜：10 秒刷新只重新拉取 stocksPage 页数以内的数据，未滚动到的
+ * 股票既不取也不占内存/DOM，跟股票总数彻底解耦。
  */
 export const useMarketStore = defineStore('market', () => {
   const indexes = ref<MarketIndex[]>([])
   const stocks = ref<StockItem[]>([])
+  const stocksPage = ref(1)
+  const stocksTotal = ref(0)
+  const stocksLoadingMore = ref(false)
   const hot = ref<StockItem[]>([])
   const updatedAt = ref(0)
   const error = ref(false)
   let timer: number | undefined
   let inflight: Promise<void> | null = null
+
+  const stocksHasMore = computed(() => stocks.value.length < stocksTotal.value)
 
   // 启动即恢复缓存（秒开）
   try {
@@ -28,25 +41,52 @@ export const useMarketStore = defineStore('market', () => {
       const c = JSON.parse(raw)
       indexes.value = c.indexes || []
       stocks.value = c.stocks || []
+      stocksPage.value = c.stocksPage || 1
+      stocksTotal.value = c.stocksTotal || 0
       hot.value = c.hot || []
       updatedAt.value = c.updatedAt || 0
     }
   } catch { /* 缓存损坏则忽略 */ }
 
+  /** 重新拉取「已经加载出来的那几页」，用于首次进入和每次定时刷新 */
+  async function fetchLoadedStockPages() {
+    const pageCount = stocksPage.value
+    const pages = await Promise.all(
+      Array.from({ length: pageCount }, (_, i) => listStocks(i + 1, STOCKS_PAGE_SIZE))
+    )
+    stocks.value = pages.flatMap(p => p.list)
+    stocksTotal.value = pages[pages.length - 1]?.total ?? stocksTotal.value
+  }
+
+  /** 触底加载下一页，供 VirtualStockList 的 load-more 事件调用 */
+  async function loadMoreStocks() {
+    if (stocksLoadingMore.value || !stocksHasMore.value) return
+    stocksLoadingMore.value = true
+    try {
+      const next = stocksPage.value + 1
+      const res = await listStocks(next, STOCKS_PAGE_SIZE)
+      stocks.value = [...stocks.value, ...res.list]
+      stocksTotal.value = res.total
+      stocksPage.value = next
+    } catch { /* 静默，用户再次触底会重试 */ } finally {
+      stocksLoadingMore.value = false
+    }
+  }
+
   async function refresh() {
     if (inflight) return inflight // 合并并发请求
     inflight = (async () => {
       try {
-        const [idx, all, hotList] = await Promise.all([
-          getMarketIndex(), listStocks(), getHotStocks(6)
+        const [idx, , hotList] = await Promise.all([
+          getMarketIndex(), fetchLoadedStockPages(), getHotStocks(6)
         ])
         indexes.value = idx
-        stocks.value = all
         hot.value = hotList
         updatedAt.value = Date.now()
         error.value = false
         localStorage.setItem(CACHE_KEY, JSON.stringify({
-          indexes: idx, stocks: all, hot: hotList, updatedAt: updatedAt.value
+          indexes: idx, stocks: stocks.value, stocksPage: stocksPage.value,
+          stocksTotal: stocksTotal.value, hot: hotList, updatedAt: updatedAt.value
         }))
         // 已登录时顺带刷新自选（同一轮询，不额外起定时器）
         const userStore = useUserStore()
@@ -88,5 +128,8 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  return { indexes, stocks, hot, updatedAt, error, refresh, ensure }
+  return {
+    indexes, stocks, stocksHasMore, stocksLoadingMore, hot, updatedAt, error,
+    refresh, ensure, loadMoreStocks
+  }
 })

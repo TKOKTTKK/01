@@ -1,7 +1,7 @@
 import { request } from './http'
 import type {
   DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
-  NewsItem, Period, Quote, SimAccount, SimCashFlow, SimPosition,
+  NewsItem, PageResult, Period, Quote, SimAccount, SimCashFlow, SimPosition,
   SimPortfolio, SimTrade, StockItem, TokenData, UserInfo
 } from './types'
 
@@ -9,7 +9,9 @@ import type {
 export const searchStocks = (keyword: string) =>
   request<StockItem[]>({ url: '/api/stocks/search', params: { keyword } })
 
-export const listStocks = () => request<StockItem[]>({ url: '/api/stocks' })
+/** 分页股票列表：page 从 1 开始。股票池扩大后前端改成滚动加载，不再一次性拉全部 */
+export const listStocks = (page = 1, size = 50) =>
+  request<PageResult<StockItem>>({ url: '/api/stocks', params: { page, size } })
 
 export const getStock = (code: string) => request<StockItem>({ url: `/api/stocks/${code}` })
 
