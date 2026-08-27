@@ -46,7 +46,7 @@ function onTouch() {
   prefetchStockDetail(props.stock.code, { deep: true })
 }
 
-// 可见即取：行进入视口即预取 detail-bootstrap（预算与节流见 viewportPrefetch）
+// 停下来即取：滚动停下后对当前可见的行预取 detail-bootstrap（预算与节流见 viewportPrefetch）
 onMounted(() => {
   if (rowEl.value) observeStockRow(rowEl.value, () => props.stock.code)
 })
