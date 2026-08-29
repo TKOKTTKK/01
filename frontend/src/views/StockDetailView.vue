@@ -82,10 +82,13 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
+  getDetailBootstrap, getIntraday, getQuote, getStockNews, inWatchlist
 } from '@/api'
 import { getFreshEntry, getPrefetchedOrFetch } from '@/utils/detailPrefetch'
-import { readIntradayDiskCache, readKlineDiskCache, writeKlineDiskCache } from '@/utils/chartDiskCache'
+import {
+  readIntradayDiskCache, readKlineDiskCache, readQuoteDiskCache, writeQuoteDiskCache
+} from '@/utils/chartDiskCache'
+import { fetchKlineIncremental } from '@/utils/klineIncremental'
 import { onIdle, shouldSkipPreload } from '@/utils/preload'
 import type { Indicators, Intraday, KlineItem, NewsItem, Period, Quote, StockItem } from '@/api/types'
 import { changeClass, fmtAmount, fmtChange, fmtPercent, fmtPrice, fmtTime, fmtVolume } from '@/utils/format'
@@ -123,7 +126,16 @@ function readSeed(): StockItem | null {
 }
 
 const seed = ref<StockItem | null>(readSeed())
+/**
+ * 行情快照磁盘缓存兜底：跟分时图同一套"先垫后盖"模式（见 chartDiskCache.ts
+ * 顶部说明）。seed 只带了价格/涨跌两个核心字段，今开/最高/最低/成交量/
+ * 成交额这些统计项之前必须等 quote 到达才会显示，不再是 "--"；命中磁盘
+ * 缓存的话这些字段也能瞬时展示，真实请求（预取/轮询）回来后照常覆盖。
+ */
 const quote = ref<Quote | null>(null)
+readQuoteDiskCache(code).then(v => {
+  if (v && !quote.value) quote.value = v
+}).catch(() => { /* 静默 */ })
 const stock = ref<StockItem | null>(null)
 /**
  * 分时图磁盘缓存兜底：IndexedDB 是异步 API，没法像 seed 价格那样在
@@ -202,14 +214,17 @@ for (const p of ['day', 'week', 'month'] as Period[]) {
 }
 
 async function loadQuote() {
-  try { quote.value = await getQuote(code) } catch { /* 保持已有数据 */ }
+  try {
+    const q = await getQuote(code)
+    quote.value = q
+    writeQuoteDiskCache(code, q).catch(() => { /* 静默 */ })
+  } catch { /* 保持已有数据 */ }
 }
 
 /**
- * K线 + 指标加载：本地缓存 -> 在途请求 -> deep 预取（day）-> 现场请求。
- * 所有路径写入同一个 klineCache，切换周期二次进入零请求；
- * 请求成功后顺手落一份到磁盘（见 chartDiskCache.ts），供下次打开
- * 详情页时垫图用。
+ * K线 + 指标加载：本地缓存 -> 在途请求 -> deep 预取（day，内部走增量拉取）
+ * -> 现场增量拉取。所有路径写入同一个 klineCache，切换周期二次进入零请求；
+ * 落盘（含增量合并）统一收在 fetchKlineIncremental 里，这里不用重复处理。
  */
 function loadKline(period: Period): Promise<{ k: KlineItem[]; i: Indicators }> {
   const cached = klineCache.get(period)
@@ -218,15 +233,13 @@ function loadKline(period: Period): Promise<{ k: KlineItem[]; i: Indicators }> {
   if (inflight) return inflight
 
   const pre = period === 'day' ? getFreshEntry(code) : null
-  const source: Promise<[KlineItem[], Indicators]> = pre?.klineDay && pre.indicatorsDay
-    ? Promise.all([pre.klineDay, pre.indicatorsDay])
-    : Promise.all([getKline(code, period), getIndicators(code, period)])
+  const source: Promise<{ k: KlineItem[]; i: Indicators }> = pre?.klineDay && pre.indicatorsDay
+    ? Promise.all([pre.klineDay, pre.indicatorsDay]).then(([k, i]) => ({ k, i }))
+    : fetchKlineIncremental(code, period)
 
   const p = source
-    .then(([k, i]) => {
-      const v = { k, i }
+    .then(v => {
       klineCache.set(period, v)
-      writeKlineDiskCache(code, period, k, i).catch(() => { /* 静默 */ })
       return v
     })
     .finally(() => klineInflight.delete(period))

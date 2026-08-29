@@ -100,19 +100,27 @@ public class StockController {
         return Result.success(marketService.getIntraday(code));
     }
 
-    /** K线：period = day | week | month */
+    /** K线：period = day | week | month；传 since（yyyy-MM-dd）则只返回该日期之后的新记录 */
     @GetMapping("/{code}/kline")
     public Result<List<KlineVO>> kline(@PathVariable String code,
                                        @RequestParam(defaultValue = "day") String period,
-                                       @RequestParam(required = false) Integer limit) {
+                                       @RequestParam(required = false) Integer limit,
+                                       @RequestParam(required = false) String since) {
+        if (since != null && !since.isBlank()) {
+            return Result.success(klineService.getKlineSince(code, period, since));
+        }
         return Result.success(klineService.getKline(code, period, limit));
     }
 
-    /** 技术指标：MA / MACD / KDJ / RSI */
+    /** 技术指标：MA / MACD / KDJ / RSI；传 since 则只返回该日期之后的新记录 */
     @GetMapping("/{code}/indicators")
     public Result<IndicatorVO> indicators(@PathVariable String code,
                                           @RequestParam(defaultValue = "day") String period,
-                                          @RequestParam(required = false) Integer limit) {
+                                          @RequestParam(required = false) Integer limit,
+                                          @RequestParam(required = false) String since) {
+        if (since != null && !since.isBlank()) {
+            return Result.success(klineService.getIndicatorsSince(code, period, since));
+        }
         return Result.success(klineService.getIndicators(code, period, limit));
     }
 

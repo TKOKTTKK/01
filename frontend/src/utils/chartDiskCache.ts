@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Indicators, Intraday, KlineItem, Period } from '@/api/types'
+import type { Indicators, Intraday, KlineItem, Period, Quote } from '@/api/types'
 
 /**
  * 图表磁盘缓存（分时图 + K线），基于 Dexie / IndexedDB。
@@ -18,6 +18,10 @@ import type { Indicators, Intraday, KlineItem, Period } from '@/api/types'
  * - K线（日/周/月）不是这样：哪怕缓存缺了最新一根蜡烛，展示出来的历史
  *   走势依然是"对的"，只是少了最新一天/一周/一月而已，不会造成误导，
  *   所以只按 24 小时 TTL，不强制同一自然日。
+ * - 实时行情快照（quote：价格/今开/最高/最低/成交量/成交额）跟分时图
+ *   同一个道理——"今开"、"最高"、"最低"都是"今天"的统计口径，跨自然日
+ *   拿出来展示会是错的一天，所以规则跟分时图一致：24 小时 TTL + 必须
+ *   同一自然日。
  *
  * 【为什么用 Dexie/IndexedDB 而不是 localStorage】
  * K线数据（历史蜡烛 + 指标，三个周期）比分时图大得多，铺开到几百上千只
@@ -43,9 +47,18 @@ interface KlineRecord {
   ts: number
 }
 
+interface QuoteRecord {
+  code: string
+  data: Quote
+  /** 本地日期 YYYY-M-D，跨自然日直接判失效，理由同分时图（今开/最高/最低是"今天"的） */
+  dateStr: string
+  ts: number
+}
+
 class ChartDiskCacheDB extends Dexie {
   intraday!: Table<IntradayRecord, string>
   kline!: Table<KlineRecord, [string, Period]>
+  quote!: Table<QuoteRecord, string>
 
   constructor() {
     super('stock_app_chart_cache')
@@ -53,6 +66,13 @@ class ChartDiskCacheDB extends Dexie {
       intraday: 'code, ts',
       // 复合主键 [code+period]：一只股票的三个周期各是独立一条记录
       kline: '[code+period], ts'
+    })
+    // v2：新增 quote 表。Dexie 会自动把已存在的 v1 库升级到 v2（保留 intraday/kline
+    // 原有数据，新增空的 quote 表），版本号必须严格递增，不能直接改 v1 的 stores()。
+    this.version(2).stores({
+      intraday: 'code, ts',
+      kline: '[code+period], ts',
+      quote: 'code, ts'
     })
   }
 }
@@ -64,6 +84,8 @@ const TTL_MS = 24 * 60 * 60 * 1000
 const MAX_INTRADAY = 100
 /** 最多缓存这么多条 K线记录（每只股票最多 3 条：日/周/月），超过按最久没刷新的淘汰 */
 const MAX_KLINE = 300
+/** 最多缓存这么多只股票的实时行情快照，超过按最久没刷新的淘汰 */
+const MAX_QUOTE = 100
 
 function todayStr(): string {
   const d = new Date()
@@ -84,6 +106,14 @@ async function evictOldestKline(): Promise<void> {
   if (count <= MAX_KLINE) return
   const staleKeys = await db.kline.orderBy('ts').limit(count - MAX_KLINE).primaryKeys()
   await db.kline.bulkDelete(staleKeys)
+}
+
+/** 按 ts 升序淘汰 quote 表里最旧的记录，直到不超过 MAX_QUOTE 条 */
+async function evictOldestQuote(): Promise<void> {
+  const count = await db.quote.count()
+  if (count <= MAX_QUOTE) return
+  const staleKeys = await db.quote.orderBy('ts').limit(count - MAX_QUOTE).primaryKeys()
+  await db.quote.bulkDelete(staleKeys)
 }
 
 /** 读取磁盘缓存的分时图：过期/不存在/IndexedDB 不可用都返回 null，不影响主流程 */
@@ -121,6 +151,23 @@ export async function readKlineDiskCache(
   }
 }
 
+/**
+ * 读取磁盘缓存的 K线 + 指标，不做 TTL 过期判断——专供增量拉取
+ * （klineIncremental.ts）用来确定"本地最新一根是哪天"，哪怕缓存已经
+ * 放了好几天，作为增量合并的历史基础依然是正确的，只是需要问后端要
+ * 更多新记录而已，跟"是否新鲜到可以直接展示"是两回事。
+ */
+export async function readKlineDiskCacheRaw(
+  code: string, period: Period
+): Promise<{ kline: KlineItem[]; indicators: Indicators } | null> {
+  try {
+    const rec = await db.kline.get([code, period])
+    return rec ? { kline: rec.kline, indicators: rec.indicators } : null
+  } catch {
+    return null
+  }
+}
+
 /** 预取 / 正式请求成功后调用：把 K线 + 指标落一份到磁盘 */
 export async function writeKlineDiskCache(
   code: string, period: Period, kline: KlineItem[], indicators: Indicators
@@ -128,5 +175,26 @@ export async function writeKlineDiskCache(
   try {
     await db.kline.put({ code, period, kline, indicators, ts: Date.now() })
     await evictOldestKline()
+  } catch { /* 静默 */ }
+}
+
+/** 读取磁盘缓存的实时行情快照：过期/不存在/IndexedDB 不可用都返回 null */
+export async function readQuoteDiskCache(code: string): Promise<Quote | null> {
+  try {
+    const rec = await db.quote.get(code)
+    if (!rec) return null
+    if (Date.now() - rec.ts > TTL_MS) return null
+    if (rec.dateStr !== todayStr()) return null
+    return rec.data
+  } catch {
+    return null
+  }
+}
+
+/** 请求成功后调用：把行情快照（价格/今开/最高/最低/成交量/成交额等）落一份到磁盘 */
+export async function writeQuoteDiskCache(code: string, data: Quote): Promise<void> {
+  try {
+    await db.quote.put({ code, data, dateStr: todayStr(), ts: Date.now() })
+    await evictOldestQuote()
   } catch { /* 静默 */ }
 }

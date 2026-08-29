@@ -1,8 +1,9 @@
 import {
-  getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStock
+  getDetailBootstrap, getIntraday, getQuote, getStock
 } from '@/api'
 import type { Indicators, Intraday, KlineItem, Quote, StockItem } from '@/api/types'
-import { writeIntradayDiskCache, writeKlineDiskCache } from './chartDiskCache'
+import { writeIntradayDiskCache, writeQuoteDiskCache } from './chartDiskCache'
+import { fetchKlineIncremental } from './klineIncremental'
 
 /**
  * 股票详情页数据预取缓存。
@@ -71,10 +72,13 @@ function makeEntry(code: string): Entry {
   // 失败（配额满/隐私模式）静默，不影响本次正常渲染
   intraday.then(v => writeIntradayDiskCache(code, v)).catch(() => { /* 静默 */ })
 
+  const quote = boot.then(b => b.quote).catch(() => ensureLegacy().quote)
+  quote.then(v => writeQuoteDiskCache(code, v)).catch(() => { /* 静默 */ })
+
   return {
     time: Date.now(),
     stock: swallow(boot.then(b => b.stock).catch(() => ensureLegacy().stock)),
-    quote: swallow(boot.then(b => b.quote).catch(() => ensureLegacy().quote)),
+    quote: swallow(quote),
     intraday: swallow(intraday)
   }
 }
@@ -86,14 +90,13 @@ function fresh(code: string): Entry | null {
 
 function deepen(entry: Entry, code: string): void {
   if (entry.klineDay) return
-  const klineDay = swallow(getKline(code, 'day'))
-  const indicatorsDay = swallow(getIndicators(code, 'day'))
-  // 落一份到磁盘缓存，供下次打开详情页直接点"日K"时也能瞬时展示
-  Promise.all([klineDay, indicatorsDay])
-    .then(([k, i]) => writeKlineDiskCache(code, 'day', k, i))
-    .catch(() => { /* 静默 */ })
-  entry.klineDay = klineDay
-  entry.indicatorsDay = indicatorsDay
+  // 增量拉取：本地磁盘有历史缓存就只问后端要新增部分，见 klineIncremental.ts
+  const combined = fetchKlineIncremental(code, 'day')
+  // 注意：分别对派生出的两个 .then() 单独 swallow，而不是只 swallow combined 本身——
+  // combined 本身有没有 catch 不影响它派生出的子 Promise 是否会成为"未处理的 rejection"，
+  // 两个子 Promise 各自需要有人接住，用户全程没进详情页（entry 从未被消费）时同样如此。
+  entry.klineDay = swallow(combined.then(v => v.k))
+  entry.indicatorsDay = swallow(combined.then(v => v.i))
 }
 
 /**

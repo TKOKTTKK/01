@@ -24,11 +24,16 @@ export const getIntraday = (code: string) =>
 export const getDetailBootstrap = (code: string) =>
   request<DetailBootstrap>({ url: `/api/stocks/${code}/detail-bootstrap` })
 
-export const getKline = (code: string, period: Period, limit = 250) =>
-  request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit } })
+/**
+ * K线：传 limit 走全量/tail 语义；传 since（yyyy-MM-dd）则只返回该日期
+ * 之后的新记录，用于本地已有历史缓存时的增量拉取（见 klineIncremental.ts）。
+ * 两者互斥，since 优先——传了 since 时 limit 会被后端忽略。
+ */
+export const getKline = (code: string, period: Period, limit?: number, since?: string) =>
+  request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit, since } })
 
-export const getIndicators = (code: string, period: Period, limit = 250) =>
-  request<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period, limit } })
+export const getIndicators = (code: string, period: Period, limit?: number, since?: string) =>
+  request<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period, limit, since } })
 
 export const getStockNews = (code: string, limit = 20) =>
   request<NewsItem[]>({ url: `/api/stocks/${code}/news`, params: { limit } })

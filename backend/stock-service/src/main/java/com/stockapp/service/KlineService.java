@@ -38,11 +38,16 @@ import java.util.Set;
  * 3. 若 DB 尚未补上新一根（跨天后补齐任务还没跑），序列最后一根 < day，
  *    此时只回源不写缓存（见 RedisCacheHelper 的 cacheable 判定），
  *    避免把旧序列钉死在新 key 上；补齐完成后首次访问自然转为可缓存。
- * 4. 指标按 (code, period, limit, day) 单独缓存：指标值依赖计算窗口
- *    （EMA/MA 的暖机段随窗口起点变化），不能用「全量算好再截尾」替代，
- *    否则会改变现有 API 的返回值语义。前端只用 limit=250，实际每个
- *    (code, period) 只会有一个指标条目。
+ * 4. 指标改为按 (code, period, MAX_LIMIT, day) 缓存一份"全量"结果
+ *    （不再按前端传入的 limit 分别缓存），getIndicators 的 tail 视图和
+ *    getIndicatorsSince 的增量视图都从这一份切片派生，不重复计算。
  * 5. Redis 故障时 RedisCacheHelper 自动降级为直查 DB，行情功能不受影响。
+ *
+ * 【增量拉取】getKlineSince / getIndicatorsSince：客户端本地已经缓存了
+ * 历史序列时，只需要带着本地最新一根的日期来问"这之后还有什么新的"，
+ * 不用每次都把全部历史重新传一遍。两者都复用同一份全量缓存序列做过滤/
+ * 切片，因此增量视图与全量视图必然是同一份数据的子集，不会出现两个
+ * 接口"看到的不是同一份快照"的不一致。
  */
 @Service
 @RequiredArgsConstructor
@@ -66,18 +71,63 @@ public class KlineService {
         return tail(full, size);
     }
 
+    /**
+     * 增量 K 线：只返回严格晚于 sinceDate（yyyy-MM-dd）的新记录，升序。
+     * sinceDate 为空则等价于 getKline 的全量/tail 语义。
+     *
+     * 复用 fullSeriesCached 同一份缓存序列，跟全量接口构造上保证数据一致，
+     * 不会出现"全量和增量看到的是两份不同快照"的问题。
+     */
+    public List<KlineVO> getKlineSince(String code, String period, String sinceDate) {
+        requireValidPeriod(period);
+        if (sinceDate == null || sinceDate.isBlank()) {
+            return getKline(code, period, null);
+        }
+        List<KlineVO> full = fullSeriesCached(code, period);
+        return full.stream().filter(k -> k.getDate().compareTo(sinceDate) > 0).toList();
+    }
+
     /** 技术指标：MA5/10/20/60、MACD、KDJ、RSI6/12/24，与 K 线一一对应 */
     public IndicatorVO getIndicators(String code, String period, Integer limit) {
         requireValidPeriod(period);
         int size = normalizeLimit(limit);
+        IndicatorVO full = fullIndicatorsCached(code, period);
+        int total = full.getDates().size();
+        return sliceIndicators(full, Math.max(0, total - size), total);
+    }
+
+    /**
+     * 增量指标：只返回严格晚于 sinceDate 的新记录，升序。
+     * sinceDate 为空则等价于 getIndicators 的全量/tail 语义。
+     */
+    public IndicatorVO getIndicatorsSince(String code, String period, String sinceDate) {
+        requireValidPeriod(period);
+        if (sinceDate == null || sinceDate.isBlank()) {
+            return getIndicators(code, period, null);
+        }
+        IndicatorVO full = fullIndicatorsCached(code, period);
+        List<String> dates = full.getDates();
+        int from = dates.size();
+        for (int i = 0; i < dates.size(); i++) {
+            if (dates.get(i).compareTo(sinceDate) > 0) { from = i; break; }
+        }
+        return sliceIndicators(full, from, dates.size());
+    }
+
+    /**
+     * 全量指标缓存：不依赖 limit（固定用 MAX_LIMIT 落缓存 key），
+     * getIndicators 的 tail 视图和 getIndicatorsSince 的增量视图都从这一份
+     * 派生，只切片不重复计算。相比 v3.1 的按 limit 分别缓存，副作用是
+     * 计算窗口从"只看 limit 根"变成"看 MAX_LIMIT 根"，指标在可视窗口
+     * 起始处的暖机 null 会更少（更准确），返回值语义不变。
+     */
+    private IndicatorVO fullIndicatorsCached(String code, String period) {
         LocalDate day = latestCompletedTradingDay();
         String expected = day.format(FMT);
-        String key = RedisKeys.indicators(code, period, size, day.format(DAY_KEY_FMT));
+        String key = RedisKeys.indicators(code, period, MAX_LIMIT, day.format(DAY_KEY_FMT));
         return cache.getOrLoad(key, RedisKeys.INDICATORS_TTL,
                 new TypeReference<IndicatorVO>() {},
-                // 复用 getKline 的序列缓存拿到同一份 K 线再计算，
-                // 不再二次触发独立的 DB 查询（修复 getIndicators 内部重复查询）
-                () -> computeIndicators(getKline(code, period, size)),
+                () -> computeIndicators(fullSeriesCached(code, period)),
                 vo -> endsAt(vo.getDates(), expected));
     }
 
@@ -168,6 +218,25 @@ public class KlineService {
     private static <T> List<T> tail(List<T> list, int n) {
         int from = Math.max(0, list.size() - n);
         return List.copyOf(list.subList(from, list.size()));
+    }
+
+    /** 按 [from, to) 对 IndicatorVO 的全部并行数组做同步切片 */
+    private static IndicatorVO sliceIndicators(IndicatorVO full, int from, int to) {
+        return IndicatorVO.builder()
+                .dates(List.copyOf(full.getDates().subList(from, to)))
+                .ma(sliceMap(full.getMa(), from, to))
+                .macd(sliceMap(full.getMacd(), from, to))
+                .kdj(sliceMap(full.getKdj(), from, to))
+                .rsi(sliceMap(full.getRsi(), from, to))
+                .build();
+    }
+
+    private static Map<String, List<BigDecimal>> sliceMap(Map<String, List<BigDecimal>> src, int from, int to) {
+        Map<String, List<BigDecimal>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, List<BigDecimal>> e : src.entrySet()) {
+            out.put(e.getKey(), List.copyOf(e.getValue().subList(from, to)));
+        }
+        return out;
     }
 
     /**
