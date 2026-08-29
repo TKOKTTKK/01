@@ -85,7 +85,7 @@ import {
   getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStockNews, inWatchlist
 } from '@/api'
 import { getFreshEntry, getPrefetchedOrFetch } from '@/utils/detailPrefetch'
-import { readIntradayDiskCache } from '@/utils/intradayDiskCache'
+import { readIntradayDiskCache, readKlineDiskCache, writeKlineDiskCache } from '@/utils/chartDiskCache'
 import { onIdle, shouldSkipPreload } from '@/utils/preload'
 import type { Indicators, Intraday, KlineItem, NewsItem, Period, Quote, StockItem } from '@/api/types'
 import { changeClass, fmtAmount, fmtChange, fmtPercent, fmtPrice, fmtTime, fmtVolume } from '@/utils/format'
@@ -126,12 +126,16 @@ const seed = ref<StockItem | null>(readSeed())
 const quote = ref<Quote | null>(null)
 const stock = ref<StockItem | null>(null)
 /**
- * 分时图 0ms 打开：跟 seed 价格接力同一个思路，setup 阶段同步读一次
- * 磁盘缓存（见 intradayDiskCache.ts）。命中的话 IntradayChart 挂载那一刻
- * props.data 已经有值，直接画真实曲线，不用先走坐标轴骨架；
- * 网络请求（预取或本次现发）返回后照常静默覆盖成最新数据。
+ * 分时图磁盘缓存兜底：IndexedDB 是异步 API，没法像 seed 价格那样在
+ * setup() 里同步拿到值，这里在 setup 阶段（而不是等 onMounted）就立即
+ * 发起读取——本地读通常几毫秒，用户感知不到这点异步延迟。命中的话
+ * IntradayChart 会在真实数据（预取/现发请求）回来之前提前把上次的
+ * 样子画出来，回来后正常静默覆盖，磁盘数据从不阻止真实请求发生。
  */
-const intraday = ref<Intraday | null>(readIntradayDiskCache(code))
+const intraday = ref<Intraday | null>(null)
+readIntradayDiskCache(code).then(v => {
+  if (v && !intraday.value) intraday.value = v
+}).catch(() => { /* 静默 */ })
 const kline = ref<KlineItem[]>([])
 const indicators = ref<Indicators | null>(null)
 const news = ref<NewsItem[]>([])
@@ -182,6 +186,20 @@ const avgDealPrice = computed(() => {
 let timer: number | undefined
 const klineCache = new Map<Period, { k: KlineItem[]; i: Indicators }>()
 const klineInflight = new Map<Period, Promise<{ k: KlineItem[]; i: Indicators }>>()
+/**
+ * K线磁盘垫图层：跟 klineCache 严格分开，不能混用。
+ * klineCache 里有值代表"本次会话已确认是最新数据"，warmKlineOnIdle
+ * 靠它判断要不要发起后台预取；klineDiskWarm 里的数据可能是长达 24
+ * 小时之前落盘的，只用来在真实请求回来之前垫一下展示，绝不能让它被
+ * 误判为"已经是最新"而跳过真实请求——那样这个周期会一直卡在旧数据上，
+ * 用户毫无察觉。
+ */
+const klineDiskWarm = new Map<Period, { k: KlineItem[]; i: Indicators }>()
+for (const p of ['day', 'week', 'month'] as Period[]) {
+  readKlineDiskCache(code, p).then(v => {
+    if (v) klineDiskWarm.set(p, { k: v.kline, i: v.indicators })
+  }).catch(() => { /* 静默 */ })
+}
 
 async function loadQuote() {
   try { quote.value = await getQuote(code) } catch { /* 保持已有数据 */ }
@@ -189,7 +207,9 @@ async function loadQuote() {
 
 /**
  * K线 + 指标加载：本地缓存 -> 在途请求 -> deep 预取（day）-> 现场请求。
- * 所有路径写入同一个 klineCache，切换周期二次进入零请求。
+ * 所有路径写入同一个 klineCache，切换周期二次进入零请求；
+ * 请求成功后顺手落一份到磁盘（见 chartDiskCache.ts），供下次打开
+ * 详情页时垫图用。
  */
 function loadKline(period: Period): Promise<{ k: KlineItem[]; i: Indicators }> {
   const cached = klineCache.get(period)
@@ -206,6 +226,7 @@ function loadKline(period: Period): Promise<{ k: KlineItem[]; i: Indicators }> {
     .then(([k, i]) => {
       const v = { k, i }
       klineCache.set(period, v)
+      writeKlineDiskCache(code, period, k, i).catch(() => { /* 静默 */ })
       return v
     })
     .finally(() => klineInflight.delete(period))
@@ -219,6 +240,15 @@ async function switchTab(t: Tab) {
     if (t === 'intraday') {
       if (!intraday.value) intraday.value = await getIntraday(code)
       return
+    }
+    // 真实数据还没确认最新之前，先用磁盘缓存垫一下展示，避免空白；
+    // 下面 loadKline 的真实请求正常发起，回来后会静默覆盖这里垫的数据
+    if (!klineCache.has(t)) {
+      const warm = klineDiskWarm.get(t)
+      if (warm) {
+        kline.value = warm.k
+        indicators.value = warm.i
+      }
     }
     const v = await loadKline(t)
     if (tab.value === t) { // 等待期间用户又切走了就不覆盖

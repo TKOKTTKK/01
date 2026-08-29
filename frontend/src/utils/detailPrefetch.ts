@@ -2,7 +2,7 @@ import {
   getDetailBootstrap, getIndicators, getIntraday, getKline, getQuote, getStock
 } from '@/api'
 import type { Indicators, Intraday, KlineItem, Quote, StockItem } from '@/api/types'
-import { writeIntradayDiskCache } from './intradayDiskCache'
+import { writeIntradayDiskCache, writeKlineDiskCache } from './chartDiskCache'
 
 /**
  * 股票详情页数据预取缓存。
@@ -67,7 +67,7 @@ function makeEntry(code: string): Entry {
   boot.catch(() => { /* 由下方各字段的 catch 分支处理 */ })
 
   const intraday = boot.then(b => b.intraday).catch(() => ensureLegacy().intraday)
-  // 落一份到磁盘缓存（见 intradayDiskCache.ts），供下次打开详情页瞬时展示；
+  // 落一份到磁盘缓存（见 chartDiskCache.ts），供下次打开详情页瞬时展示；
   // 失败（配额满/隐私模式）静默，不影响本次正常渲染
   intraday.then(v => writeIntradayDiskCache(code, v)).catch(() => { /* 静默 */ })
 
@@ -86,8 +86,14 @@ function fresh(code: string): Entry | null {
 
 function deepen(entry: Entry, code: string): void {
   if (entry.klineDay) return
-  entry.klineDay = swallow(getKline(code, 'day'))
-  entry.indicatorsDay = swallow(getIndicators(code, 'day'))
+  const klineDay = swallow(getKline(code, 'day'))
+  const indicatorsDay = swallow(getIndicators(code, 'day'))
+  // 落一份到磁盘缓存，供下次打开详情页直接点"日K"时也能瞬时展示
+  Promise.all([klineDay, indicatorsDay])
+    .then(([k, i]) => writeKlineDiskCache(code, 'day', k, i))
+    .catch(() => { /* 静默 */ })
+  entry.klineDay = klineDay
+  entry.indicatorsDay = indicatorsDay
 }
 
 /**
