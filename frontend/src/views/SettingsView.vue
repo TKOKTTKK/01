@@ -44,14 +44,24 @@
     <div class="card list">
       <div class="item"><span>行情数据源</span><span class="mock-badge">模拟行情（非真实数据）</span></div>
       <div class="item"><span>关于</span><span class="val">简牛行情</span></div>
-      <div class="item"><span>版本</span><span class="val">v2.0.0</span></div>
+      <!-- 调试面板：验证完删掉本段和 DebugCachePanel.vue -->
+      <div class="item" @touchstart.passive="startPress" @touchend="cancelPress" @touchcancel="cancelPress"
+        @mousedown="startPress" @mouseup="cancelPress" @mouseleave="cancelPress">
+        <span>版本</span><span class="val">v2.0.0</span>
+      </div>
     </div>
+
+    <!-- 调试面板：验证完删掉本段和 DebugCachePanel.vue -->
+    <DebugCachePanel v-if="showDebug" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useSettingsStore, type ThemeColor, type ThemeMode } from '@/stores/settings'
 import { useUiStore } from '@/stores/ui'
+// 调试面板：验证完删掉这一行和 DebugCachePanel.vue
+import DebugCachePanel from '@/components/DebugCachePanel.vue'
 
 const settings = useSettingsStore()
 const ui = useUiStore()
@@ -77,6 +87,16 @@ async function onClearCache() {
   if (!ok) return
   settings.clearCache()
   ui.toast('缓存已清除', 'success')
+}
+
+// 调试面板：验证完删掉这一段（showDebug / startPress / cancelPress 三个）
+const showDebug = ref(false)
+let pressTimer: number | undefined
+function startPress() {
+  pressTimer = window.setTimeout(() => { showDebug.value = !showDebug.value }, 1200)
+}
+function cancelPress() {
+  window.clearTimeout(pressTimer)
 }
 </script>
 
