@@ -1,5 +1,6 @@
 package com.stockapp.job;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.stockapp.common.vo.QuoteVO;
 import com.stockapp.dao.entity.Stock;
 import com.stockapp.dao.entity.StockQuote;
@@ -27,6 +28,11 @@ import java.util.stream.Collectors;
  * 未命中并行回源），再按 CHUNK_SIZE 分片批量插入（StockQuoteMapper#insertBatch，
  * 每片 1 条多值 INSERT + ON CONFLICT DO NOTHING 替代逐条 insert 捕获
  * DuplicateKeyException）。
+ *
+ * 【保留策略】这张表只写不读，如果永久保留，长期运行下去行数会无限增长
+ * （每分钟 × 股票数），拖慢备份/迁移。加一个每日清理，只保留最近
+ * {@link #RETENTION_DAYS} 天的快照——审计/回放这类场景够用了，
+ * 更久远的历史已经有 stock_kline 的日 K 承载，不需要分钟级快照。
  */
 @Slf4j
 @Component
@@ -36,6 +42,9 @@ public class QuoteSnapshotJob {
     /** 单条 INSERT 携带的行数上限：12 列 × 500 行 = 6000 个绑定参数，远低于
      *  PostgreSQL 单条 SQL 65535 个参数的上限，留足安全余量 */
     private static final int CHUNK_SIZE = 500;
+
+    /** 快照保留天数，超过的行按每日清理任务删除 */
+    private static final int RETENTION_DAYS = 30;
 
     private final StockMapper stockMapper;
     private final StockQuoteMapper quoteMapper;
@@ -88,5 +97,35 @@ public class QuoteSnapshotJob {
         }
         log.info("行情快照完成: {}/{} 只股票写入（重复的一分钟内快照会被 ON CONFLICT 跳过）",
                 inserted, stocks.size());
+    }
+
+    /**
+     * 每日清理超过保留期的快照。放在凌晨、避开每分钟落库和白天访问高峰；
+     * 用主键批量删除而不是一次性 DELETE 大范围行，避免长事务长时间锁表——
+     * 落库这张表虽然只写不读，但删除时仍会跟当分钟的 INSERT 竞争锁，
+     * 分批删除让每一批的锁持有时间都很短。
+     */
+    @Scheduled(cron = "0 30 3 * * *", zone = "Asia/Shanghai")
+    public void cleanupOldSnapshots() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(RETENTION_DAYS);
+        long total = 0;
+        while (true) {
+            List<StockQuote> batch = quoteMapper.selectList(new LambdaQueryWrapper<StockQuote>()
+                    .lt(StockQuote::getTradeTime, cutoff)
+                    .select(StockQuote::getId)
+                    .last("LIMIT " + CHUNK_SIZE));
+            if (batch.isEmpty()) {
+                break;
+            }
+            List<Long> ids = batch.stream().map(StockQuote::getId).toList();
+            quoteMapper.deleteBatchIds(ids);
+            total += ids.size();
+            if (ids.size() < CHUNK_SIZE) {
+                break;
+            }
+        }
+        if (total > 0) {
+            log.info("行情快照清理完成: 删除 {} 天前的快照共 {} 条", RETENTION_DAYS, total);
+        }
     }
 }

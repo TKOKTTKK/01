@@ -76,15 +76,27 @@ function onInput() {
   debounce = window.setTimeout(doSearch, 300)
 }
 
+/**
+ * 请求序号防竞态：每次发起搜索都领一个递增序号，响应回来时先比对
+ * "自己是不是最新一次发出的请求"，不是就直接丢弃——避免网络乱序时，
+ * 一次更早发出、但更晚返回的旧关键词结果，覆盖掉新关键词已经显示的结果。
+ * 单纯防抖（300ms）覆盖不了这种情况：防抖只保证"停顿时只发一个请求"，
+ * 挡不住"两次不同停顿分别发出的请求，在网络层不按发出顺序回来"。
+ */
+let searchSeq = 0
+
 async function doSearch() {
   const kw = keyword.value.trim()
+  const seq = ++searchSeq
   if (!kw) {
     results.value = []
     searched.value = false
     return
   }
   try {
-    results.value = await searchStocks(kw)
+    const res = await searchStocks(kw)
+    if (seq !== searchSeq) return // 期间又发起了更新的搜索，本次结果已过期，丢弃
+    results.value = res
     searched.value = true
     if (results.value.length) saveRecent(kw)
   } catch { /* 忽略 */ }

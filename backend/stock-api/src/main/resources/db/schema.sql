@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS stock_quote (
     CONSTRAINT uk_quote_stock_time UNIQUE (stock_id, trade_time)
 );
 CREATE INDEX IF NOT EXISTS idx_quote_stock ON stock_quote (stock_id, trade_time DESC);
+-- 供每日快照清理任务（QuoteSnapshotJob#cleanupOldSnapshots）按 trade_time 单列过滤用；
+-- 上面的 idx_quote_stock 领头列是 stock_id，服务不了纯 trade_time 的范围查询
+CREATE INDEX IF NOT EXISTS idx_quote_trade_time ON stock_quote (trade_time);
 
 -- K线（日/周/月）
 CREATE TABLE IF NOT EXISTS stock_kline (
