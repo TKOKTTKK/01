@@ -234,7 +234,7 @@ public class KlineService {
     private static Map<String, List<BigDecimal>> sliceMap(Map<String, List<BigDecimal>> src, int from, int to) {
         Map<String, List<BigDecimal>> out = new LinkedHashMap<>();
         for (Map.Entry<String, List<BigDecimal>> e : src.entrySet()) {
-            out.put(e.getKey(), new ArrayList<>(e.getValue().subList(from, to)));
+            out.put(e.getKey(), List.copyOf(e.getValue().subList(from, to)));
         }
         return out;
     }
