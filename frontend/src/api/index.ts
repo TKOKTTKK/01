@@ -13,27 +13,29 @@ export const searchStocks = (keyword: string) =>
 export const listStocks = (page = 1, size = 50) =>
   request<PageResult<StockItem>>({ url: '/api/stocks', params: { page, size } })
 
-export const getStock = (code: string) => request<StockItem>({ url: `/api/stocks/${code}` })
+export const getStock = (code: string, signal?: AbortSignal) =>
+  request<StockItem>({ url: `/api/stocks/${code}`, signal })
 
-export const getQuote = (code: string) => request<Quote>({ url: `/api/stocks/${code}/quote` })
+export const getQuote = (code: string, signal?: AbortSignal) =>
+  request<Quote>({ url: `/api/stocks/${code}/quote`, signal })
 
-export const getIntraday = (code: string) =>
-  request<Intraday>({ url: `/api/stocks/${code}/intraday` })
+export const getIntraday = (code: string, signal?: AbortSignal) =>
+  request<Intraday>({ url: `/api/stocks/${code}/intraday`, signal })
 
 /** 详情页首屏聚合：一次请求拿到 stock + quote + intraday（冷启动专用） */
-export const getDetailBootstrap = (code: string) =>
-  request<DetailBootstrap>({ url: `/api/stocks/${code}/detail-bootstrap` })
+export const getDetailBootstrap = (code: string, signal?: AbortSignal) =>
+  request<DetailBootstrap>({ url: `/api/stocks/${code}/detail-bootstrap`, signal })
 
 /**
  * K线：传 limit 走全量/tail 语义；传 since（yyyy-MM-dd）则只返回该日期
  * 之后的新记录，用于本地已有历史缓存时的增量拉取（见 klineIncremental.ts）。
  * 两者互斥，since 优先——传了 since 时 limit 会被后端忽略。
  */
-export const getKline = (code: string, period: Period, limit?: number, since?: string) =>
-  request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit, since } })
+export const getKline = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal) =>
+  request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit, since }, signal })
 
-export const getIndicators = (code: string, period: Period, limit?: number, since?: string) =>
-  request<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period, limit, since } })
+export const getIndicators = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal) =>
+  request<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period, limit, since }, signal })
 
 export const getStockNews = (code: string, limit = 20) =>
   request<NewsItem[]>({ url: `/api/stocks/${code}/news`, params: { limit } })

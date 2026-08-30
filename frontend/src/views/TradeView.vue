@@ -38,7 +38,7 @@
       </div>
       <div class="card" style="padding: 2px 14px;">
         <div v-for="p in sim.positions" :key="p.stockId" class="pos"
-          @click="$router.push(`/stock/${p.code}`)">
+          @click="cancelOtherPrefetches(p.code); $router.push(`/stock/${p.code}`)">
           <div class="phead">
             <div>
               <span class="pname">{{ p.name }}</span>
@@ -78,6 +78,7 @@ import { onActivated, onDeactivated, onMounted } from 'vue'
 import { useSimStore } from '@/stores/sim'
 import { useUserStore } from '@/stores/user'
 import { changeClass, fmtMoney, fmtPrice, fmtSigned } from '@/utils/format'
+import { cancelOtherPrefetches } from '@/utils/detailPrefetch'
 
 defineOptions({ name: 'TradeView' })
 

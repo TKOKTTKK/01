@@ -35,6 +35,11 @@ function notifyNetworkError(message: string) {
 }
 
 http.interceptors.response.use((resp) => resp, (err) => {
+  // 主动取消（比如预取被真实点击顶掉）不是网络故障，不弹提示，
+  // 原样透传给调用方，走 detailPrefetch 里已有的 swallow() 静默处理
+  if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
+    return Promise.reject(err)
+  }
   const isTimeout = err?.code === 'ECONNABORTED'
   const status = err?.response?.status
   let message = '网络异常，请检查网络连接'
@@ -47,12 +52,16 @@ http.interceptors.response.use((resp) => resp, (err) => {
   return Promise.reject(new Error(message))
 })
 
-/** 请求并解包 Result；code!=0 抛错，401 类错误跳登录 */
+/** 请求并解包 Result；code!=0 抛错，401 类错误跳登录。
+ *  signal 可选：传入后，调用方可以用 AbortController 主动取消这次请求
+ *  （目前用在预取场景——真实点击发生时，取消其他还在飞行中的预取请求，
+ *  把带宽让给真正要展示的这一个）。 */
 export async function request<T>(config: {
   url: string
   method?: 'get' | 'post' | 'delete'
   params?: Record<string, unknown>
   data?: unknown
+  signal?: AbortSignal
 }): Promise<T> {
   const resp = await http.request<ApiResult<T>>({ method: 'get', ...config })
   const body = resp.data

@@ -17,7 +17,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { preloadView } from '@/router'
-import { prefetchStockDetail } from '@/utils/detailPrefetch'
+import { prefetchStockDetail, cancelOtherPrefetches } from '@/utils/detailPrefetch'
 import { observeStockRow, unobserveStockRow } from '@/utils/viewportPrefetch'
 import type { StockItem } from '@/api/types'
 import { changeClass, fmtPercent, fmtPrice } from '@/utils/format'
@@ -34,6 +34,8 @@ const cls = computed(() => changeClass(props.stock.changePercent))
  * seedTs 用于详情页判定新鲜度（刷新恢复的 history.state 可能很旧）。
  */
 function open() {
+  // 真实点击发生：取消除了这只股票之外、还在飞行中的预取请求，让出带宽
+  cancelOtherPrefetches(props.stock.code)
   router.push({
     path: `/stock/${props.stock.code}`,
     state: { seed: { ...props.stock }, seedTs: Date.now() }

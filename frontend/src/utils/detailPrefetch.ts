@@ -30,11 +30,22 @@ import { fetchKlineIncremental } from './klineIncremental'
  *
  * 【为什么要设 TTL】预取只应该服务"预取 -> 马上点进去"这一小段窗口，
  * 如果用户划走了、几十秒后又点别的股票，不应该用很久以前预取的过期数据。
+ *
+ * 【v3.2 真实点击优先】"停下来即取"改成一屏内并发发起后（见 viewportPrefetch.ts），
+ * 一次停留可能同时有好几个预取请求在飞行。如果用户这时候真的点开了其中一只，
+ * 这次点击应得优先带宽，不该跟另外几个"用户根本没点"的预取请求抢。
+ * 做法：每个 Entry 持有自己的 AbortController，贯穿它发出的全部请求
+ * （bootstrap / 降级三连 / deep 预取的 K线+指标）；真实导航发生时调用
+ * cancelOtherPrefetches(exceptCode)，把缓存里除了目标股票之外、还在飞行中
+ * 的请求全部取消掉。取消不是错误，http.ts 的响应拦截器已经识别
+ * ERR_CANCELED 并跳过全局报错提示；这里的 swallow() 也会接住，不会
+ * 冒泡成未处理异常。
  */
 const TTL_MS = 8000
 
 export interface Entry {
   time: number
+  controller: AbortController
   stock: Promise<StockItem>
   quote: Promise<Quote>
   intraday: Promise<Intraday>
@@ -47,29 +58,31 @@ const cache = new Map<string, Entry>()
 
 /** 标记 rejection 已被处理（不冒泡到全局兜底），同时不影响真正的消费方拿到错误 */
 function swallow<T>(p: Promise<T>): Promise<T> {
-  p.catch(() => { /* 预取失败静默；消费方 await 时仍会收到原始错误 */ })
+  p.catch(() => { /* 预取失败/被取消静默；消费方 await 时仍会收到原始错误 */ })
   return p
 }
 
 function makeEntry(code: string): Entry {
+  const controller = new AbortController()
+  const { signal } = controller
   // 聚合接口失败时降级为三次独立请求；memo 化保证三个字段共享同一组降级请求
   let legacy: { stock: Promise<StockItem>; quote: Promise<Quote>; intraday: Promise<Intraday> } | null = null
   const ensureLegacy = () => {
     if (!legacy) {
       legacy = {
-        stock: swallow(getStock(code)),
-        quote: swallow(getQuote(code)),
-        intraday: swallow(getIntraday(code))
+        stock: swallow(getStock(code, signal)),
+        quote: swallow(getQuote(code, signal)),
+        intraday: swallow(getIntraday(code, signal))
       }
     }
     return legacy
   }
-  const boot = getDetailBootstrap(code)
+  const boot = getDetailBootstrap(code, signal)
   boot.catch(() => { /* 由下方各字段的 catch 分支处理 */ })
 
   const intraday = boot.then(b => b.intraday).catch(() => ensureLegacy().intraday)
   // 落一份到磁盘缓存（见 chartDiskCache.ts），供下次打开详情页瞬时展示；
-  // 失败（配额满/隐私模式）静默，不影响本次正常渲染
+  // 失败（配额满/隐私模式/被取消）静默，不影响本次正常渲染
   intraday.then(v => writeIntradayDiskCache(code, v)).catch(() => { /* 静默 */ })
 
   const quote = boot.then(b => b.quote).catch(() => ensureLegacy().quote)
@@ -77,6 +90,7 @@ function makeEntry(code: string): Entry {
 
   return {
     time: Date.now(),
+    controller,
     stock: swallow(boot.then(b => b.stock).catch(() => ensureLegacy().stock)),
     quote: swallow(quote),
     intraday: swallow(intraday)
@@ -91,7 +105,7 @@ function fresh(code: string): Entry | null {
 function deepen(entry: Entry, code: string): void {
   if (entry.klineDay) return
   // 增量拉取：本地磁盘有历史缓存就只问后端要新增部分，见 klineIncremental.ts
-  const combined = fetchKlineIncremental(code, 'day')
+  const combined = fetchKlineIncremental(code, 'day', entry.controller.signal)
   // 注意：分别对派生出的两个 .then() 单独 swallow，而不是只 swallow combined 本身——
   // combined 本身有没有 catch 不影响它派生出的子 Promise 是否会成为"未处理的 rejection"，
   // 两个子 Promise 各自需要有人接住，用户全程没进详情页（entry 从未被消费）时同样如此。
@@ -127,4 +141,21 @@ export function getPrefetchedOrFetch(code: string): Entry {
 /** 只探测、不发请求：详情页用它判断 deep 预取的日K是否可直接复用 */
 export function getFreshEntry(code: string): Entry | null {
   return fresh(code)
+}
+
+/**
+ * 真实导航发生时调用：取消缓存里除了目标股票之外、仍在飞行中的预取请求，
+ * 把带宽让给真正要展示的这一个。
+ *
+ * 【为什么直接删掉 entry，而不是留着等它"取消后"的状态】被取消的请求
+ * 不会再有正常结果，留在 cache 里没有意义，删掉后如果用户之后又划回来看到
+ * 这只股票，会正常触发一次全新的预取，不会因为命中一个"已作废"的 entry
+ * 而拿到 abort 错误。
+ */
+export function cancelOtherPrefetches(exceptCode: string): void {
+  for (const [code, entry] of cache) {
+    if (code === exceptCode) continue
+    entry.controller.abort()
+    cache.delete(code)
+  }
 }
