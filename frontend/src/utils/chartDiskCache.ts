@@ -45,6 +45,15 @@ interface KlineRecord {
   kline: KlineItem[]
   indicators: Indicators
   ts: number
+  /**
+   * 全量后台同步（fullSync.ts）用：记录上次拿到这只股票 K线/指标时后端
+   * 返回的 ETag，下次同步时带着当 If-None-Match 发回去，服务端没变就回
+   * 304，不用重新传一遍 body。只有全量同步会写这两个字段——点开详情页时
+   * 走的是普通请求（api/index.ts 的 getKline/getIndicators），不涉及
+   * 条件请求，这两个字段就是 undefined，不影响正常展示/TTL 判断逻辑。
+   */
+  klineEtag?: string
+  indicatorsEtag?: string
 }
 
 interface QuoteRecord {
@@ -59,6 +68,8 @@ class ChartDiskCacheDB extends Dexie {
   intraday!: Table<IntradayRecord, string>
   kline!: Table<KlineRecord, [string, Period]>
   quote!: Table<QuoteRecord, string>
+  /** 全量同步的断点续传状态，见 fullSync.ts；固定用字符串 key 存单条记录 */
+  meta!: Table<{ key: string; value: unknown }, string>
 
   constructor() {
     super('stock_app_chart_cache')
@@ -74,16 +85,32 @@ class ChartDiskCacheDB extends Dexie {
       kline: '[code+period], ts',
       quote: 'code, ts'
     })
+    // v3：新增 meta 表，供 fullSync.ts 记录"今天有没有做完全量同步 / 断点续传
+    // 到第几个了"。只加表不动已有表的 index 定义，老数据不受影响。
+    this.version(3).stores({
+      intraday: 'code, ts',
+      kline: '[code+period], ts',
+      quote: 'code, ts',
+      meta: 'key'
+    })
   }
 }
 
 const db = new ChartDiskCacheDB()
 
 const TTL_MS = 24 * 60 * 60 * 1000
+/** 30 天没再写入/刷新过的记录，判定为过期数据，清理释放空间——见 pruneStaleGlobally() */
+const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 /** 最多缓存这么多只股票的分时图，超过按最久没刷新的淘汰 */
 const MAX_INTRADAY = 100
-/** 最多缓存这么多条 K线记录（每只股票最多 3 条：日/周/月），超过按最久没刷新的淘汰 */
-const MAX_KLINE = 300
+/**
+ * 最多缓存这么多条 K线记录。上调到 900 是因为全量后台同步（fullSync.ts）
+ * 会把整个股票池（目前 500 只）的日K都落到这张表——500 条是全量同步的
+ * 硬需求，另外预留约 400 条给用户实际点开、看了周K/月K产生的记录
+ * （旧的 300 上限是在只有"点过的股票才有缓存"这个前提下定的，全量同步
+ * 把这个前提改变了，上限也得跟着调）。
+ */
+const MAX_KLINE = 900
 /** 最多缓存这么多只股票的实时行情快照，超过按最久没刷新的淘汰 */
 const MAX_QUOTE = 100
 
@@ -197,4 +224,108 @@ export async function writeQuoteDiskCache(code: string, data: Quote): Promise<vo
     await db.quote.put({ code, data, dateStr: todayStr(), ts: Date.now() })
     await evictOldestQuote()
   } catch { /* 静默 */ }
+}
+
+/**
+ * 30 天没再写入/刷新过的记录清理——统一按各表已有的 ts（最后写入时间）
+ * 字段判断，不新增"最后打开时间"这个概念，理由：
+ * 1. 全量同步（fullSync.ts）例行跑的话，股票池里还在的股票 ts 会不断被
+ *    刷新，30 天规则实际清理的主要是"已经从股票池下架/全量同步不再覆盖"
+ *    的旧数据——不需要额外判断"股票是否退市"，自然过期即可，更简单。
+ * 2. intraday/quote 这两类数据完全是"用户点开详情页时才产生"的缓存，
+ *    ts 就是"最后一次被这只股票的详情页请求刷新的时间"，跟用户是否
+ *    还在关注这只股票直接对应，符合"多久没打开清理"的直觉。
+ *
+ * 建议在 App 启动时调用一次（main.ts），不需要频繁调用——这不是一个
+ * "读取路径"上的检查，是一次性的存储空间维护，放进 onIdle 里跑，
+ * 不阻塞首屏。
+ */
+export async function pruneStaleGlobally(): Promise<void> {
+  try {
+    const cutoff = Date.now() - RETENTION_MS
+    const [staleIntraday, staleKline, staleQuote] = await Promise.all([
+      db.intraday.where('ts').below(cutoff).primaryKeys(),
+      db.kline.where('ts').below(cutoff).primaryKeys(),
+      db.quote.where('ts').below(cutoff).primaryKeys()
+    ])
+    await Promise.all([
+      staleIntraday.length ? db.intraday.bulkDelete(staleIntraday) : Promise.resolve(),
+      staleKline.length ? db.kline.bulkDelete(staleKline) : Promise.resolve(),
+      staleQuote.length ? db.quote.bulkDelete(staleQuote) : Promise.resolve()
+    ])
+  } catch { /* 静默：清理失败不影响功能，顶多是多占了点空间 */ }
+}
+
+/** 全量同步进度读取，取不到/IndexedDB 不可用都返回 null（视为"没有进度，从头开始"） */
+export async function getSyncMeta<T>(key: string): Promise<T | null> {
+  try {
+    const rec = await db.meta.get(key)
+    return rec ? (rec.value as T) : null
+  } catch {
+    return null
+  }
+}
+
+export async function setSyncMeta(key: string, value: unknown): Promise<void> {
+  try {
+    await db.meta.put({ key, value })
+  } catch { /* 静默 */ }
+}
+
+/**
+ * 全量同步专用的批量写入：一批（几十只股票）攒成一个数组，一次 bulkPut
+ * 提交，而不是每只股票单独 put 一次。IndexedDB 的写事务有固定开销，
+ * 500 只股票如果逐条 put，等于 500 次独立事务；bulkPut 把一批合并成
+ * 一次事务，主线程占用时间大幅减少，也更符合"不阻塞主线程"的要求。
+ * 与 writeKlineDiskCache（点开详情页时的单条写入）刻意分开成两个函数，
+ * 是因为调用场景和"一次写几条"这个形状本来就不同，硬合并成一个反而
+ * 两边都要兼容对方的参数形状，不值得。
+ */
+export async function bulkWriteKlineDiskCache(
+  records: Array<{
+    code: string
+    period: Period
+    kline: KlineItem[]
+    indicators: Indicators
+    klineEtag?: string
+    indicatorsEtag?: string
+  }>
+): Promise<void> {
+  if (records.length === 0) return
+  try {
+    const ts = Date.now()
+    await db.kline.bulkPut(records.map(r => ({ ...r, ts })))
+    await evictOldestKline()
+  } catch { /* 静默 */ }
+}
+
+/**
+ * 全量同步专用：服务端确认没变（304）时调用——只把 ts 刷新到当前时间，
+ * 不碰 kline/indicators 内容。为什么需要这一步：如果 304 命中时完全不写
+ * 任何东西，这条记录的 ts 会停留在很久以前第一次同步成功的那一刻，
+ * 30 天保留规则（pruneStaleGlobally）就会误判它是"没人管的旧数据"给
+ * 删掉——即使它其实每天都在被全量同步正常验证、内容一直是最新的。
+ */
+export async function touchKlineTs(codes: string[], period: Period): Promise<void> {
+  if (codes.length === 0) return
+  try {
+    const now = Date.now()
+    await db.transaction('rw', db.kline, async () => {
+      for (const code of codes) {
+        await db.kline.update([code, period], { ts: now })
+      }
+    })
+  } catch { /* 静默 */ }
+}
+
+/** 全量同步读取某只股票已有的 ETag（用于下次条件请求时带上 If-None-Match），没有就返回 undefined */
+export async function readKlineEtags(
+  code: string, period: Period
+): Promise<{ klineEtag?: string; indicatorsEtag?: string } | null> {
+  try {
+    const rec = await db.kline.get([code, period])
+    return rec ? { klineEtag: rec.klineEtag, indicatorsEtag: rec.indicatorsEtag } : null
+  } catch {
+    return null
+  }
 }

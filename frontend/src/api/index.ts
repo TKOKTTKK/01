@@ -1,4 +1,4 @@
-import { request, requestLowPriority } from './http'
+import { request, requestConditional, requestLowPriority } from './http'
 import type {
   DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, PageResult, Period, Quote, SimAccount, SimCashFlow, SimPosition,
@@ -30,6 +30,15 @@ export const getQuote = (code: string, signal?: AbortSignal, lowPriority?: boole
   return lowPriority ? requestLowPriority<Quote>(cfg) : request<Quote>(cfg)
 }
 
+/**
+ * 批量取实时行情：可视区高频轮询专用（utils/visiblePricePolling.ts）——
+ * 一次请求拿完当前屏幕可见的全部股票最新价格，不是逐只轮询。走正常优先级
+ * （不是 requestLowPriority）——这是用户此刻正盯着看的股票，不是投机性
+ * 预取，理应和真实点击享受同等的调度优先级。
+ */
+export const getQuotesBatch = (codes: string[]) =>
+  request<Quote[]>({ url: '/api/stocks/quotes', params: { codes: codes.join(',') } })
+
 export const getIntraday = (code: string, signal?: AbortSignal, lowPriority?: boolean) => {
   const cfg = { url: `/api/stocks/${code}/intraday`, signal }
   return lowPriority ? requestLowPriority<Intraday>(cfg) : request<Intraday>(cfg)
@@ -55,6 +64,19 @@ export const getIndicators = (code: string, period: Period, limit?: number, sinc
   const cfg = { url: `/api/stocks/${code}/indicators`, params: { period, limit, since }, signal }
   return lowPriority ? requestLowPriority<Indicators>(cfg) : request<Indicators>(cfg)
 }
+
+/**
+ * 全量后台同步专用（fullSync.ts）：带条件请求的 K线/指标获取，本地有
+ * ETag 就带上，服务端没变直接回 { notModified: true }，不产生 body 传输。
+ * 跟上面 getKline/getIndicators 分开成独立函数，是因为返回类型完全不同
+ * （ConditionalResult 而不是直接的数据），混进同一个函数会让所有原有
+ * 调用方都要多判断一层 notModified，没必要。
+ */
+export const getKlineConditional = (code: string, period: Period, etag?: string, signal?: AbortSignal) =>
+  requestConditional<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period }, etag, signal })
+
+export const getIndicatorsConditional = (code: string, period: Period, etag?: string, signal?: AbortSignal) =>
+  requestConditional<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period }, etag, signal })
 
 export const getStockNews = (code: string, limit = 20) =>
   request<NewsItem[]>({ url: `/api/stocks/${code}/news`, params: { limit } })

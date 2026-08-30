@@ -7,8 +7,32 @@
       <button class="debug-btn" @click="query">查询</button>
       <button class="debug-btn ghost" @click="listAll">看全部已缓存代码</button>
     </div>
+    <div class="debug-row">
+      <button class="debug-btn ghost" @click="checkSyncStatus">查看全量同步状态</button>
+    </div>
 
     <div v-if="loading" class="debug-hint">查询中…</div>
+
+    <template v-if="syncStatus">
+      <div class="debug-section">
+        <div class="debug-h">全量后台同步（fullSync.ts）</div>
+        <div class="debug-hit">
+          今天日期：{{ syncStatus.today }}；记录里的日期：{{ syncStatus.dateStr ?? '（还没跑过）' }}
+        </div>
+        <div v-if="syncStatus.dateStr === syncStatus.today" class="debug-hit">
+          今天进度：{{ syncStatus.nextIndex }} / {{ syncStatus.total }}
+          {{ syncStatus.nextIndex >= syncStatus.total ? '（已完成）' : '（进行中/等待下次空闲触发）' }}
+        </div>
+        <div v-else class="debug-miss">今天还没开始同步（等待启动延迟/空闲触发，或还没到今天）</div>
+        <div class="debug-hit">
+          kline 表里带全量同步 ETag 的日K记录数：{{ syncStatus.syncedCount }}
+          （区分于"仅点开过、走普通请求缓存"的记录——那些没有 etag 字段）
+        </div>
+        <div class="debug-hit">
+          当前（Asia/Shanghai）：{{ syncStatus.nowStr }} · {{ syncStatus.inTradingHours ? '✅ 交易时段内，价格轮询应该在跑' : '⏸ 非交易时段，价格轮询原地待命' }}
+        </div>
+      </div>
+    </template>
 
     <template v-if="result">
       <div class="debug-section">
@@ -48,8 +72,8 @@
 
 <script setup lang="ts">
 /**
- * ⚠️ 临时调试面板 —— 仅用于在真机上肉眼验证 IndexedDB 预取缓存是否命中，
- * 不是正式功能，不应该留在生产代码里。
+ * ⚠️ 临时调试面板 —— 仅用于在真机上肉眼验证 IndexedDB 预取缓存 /
+ * 全量后台同步是否命中/正常推进，不是正式功能，不应该留在生产代码里。
  *
  * 用完删除方法（共 2 处）：
  * 1. 删掉本文件：frontend/src/components/DebugCachePanel.vue
@@ -58,8 +82,8 @@
  * 两处都删完，`npm run build` 应该照常通过（没有任何其他文件引用这个组件）。
  *
  * 实现上直接用原生 IndexedDB API 只读打开 chartDiskCache.ts 建的那个库
- * （stock_app_chart_cache），不 import、不改动 chartDiskCache.ts 本身，
- * 删除这一个文件不会牵扯到任何正式代码。
+ * （stock_app_chart_cache），不 import、不改动 chartDiskCache.ts /
+ * fullSync.ts 本身，删除这一个文件不会牵扯到任何正式代码。
  */
 import { ref } from 'vue'
 
@@ -71,10 +95,21 @@ interface DebugResult {
   kline: { period: string; ts: number; count: number }[]
 }
 
+interface SyncStatus {
+  today: string
+  dateStr: string | null
+  nextIndex: number
+  total: number
+  syncedCount: number
+  nowStr: string
+  inTradingHours: boolean
+}
+
 const code = ref('')
 const loading = ref(false)
 const result = ref<DebugResult | null>(null)
 const allCodes = ref<string[] | null>(null)
+const syncStatus = ref<SyncStatus | null>(null)
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -133,6 +168,58 @@ async function listAll() {
     allCodes.value = [...new Set(quotes.map(q => q.code))].sort()
   } catch {
     allCodes.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+/**
+ * 跟 utils/visiblePricePolling.ts 里的判断逻辑刻意保持一致但独立实现
+ * （不 import 它）——调试面板的设计原则是不牵扯正式代码，见文件顶部注释。
+ */
+function checkTradingHours(): { inTradingHours: boolean; nowStr: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai', hour12: false,
+    weekday: 'short', hour: '2-digit', minute: '2-digit'
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
+  const weekday = get('weekday')
+  const hour = Number(get('hour'))
+  const minute = Number(get('minute'))
+  const weekdayCn: Record<string, string> = { Mon: '一', Tue: '二', Wed: '三', Thu: '四', Fri: '五', Sat: '六', Sun: '日' }
+  const nowStr = `周${weekdayCn[weekday] ?? weekday} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  if (weekday === 'Sat' || weekday === 'Sun') return { inTradingHours: false, nowStr }
+  const mins = hour * 60 + minute
+  const inTradingHours = (mins >= 9 * 60 + 30 && mins <= 11 * 60 + 30) || (mins >= 13 * 60 && mins <= 15 * 60)
+  return { inTradingHours, nowStr }
+}
+
+async function checkSyncStatus() {
+  loading.value = true
+  try {
+    const db = await openDb()
+    const metaRows = await getAll<{ key: string; value: unknown }>(db, 'meta')
+    const state = metaRows.find(r => r.key === 'fullSyncState')?.value as
+      { codes: string[]; nextIndex: number; dateStr: string } | undefined
+    const klines = await getAll<{ code: string; period: string; klineEtag?: string }>(db, 'kline')
+    const syncedCount = klines.filter(k => k.period === 'day' && k.klineEtag).length
+    const { inTradingHours, nowStr } = checkTradingHours()
+    syncStatus.value = {
+      today: todayStr(),
+      dateStr: state?.dateStr ?? null,
+      nextIndex: state?.nextIndex ?? 0,
+      total: state?.codes.length ?? 0,
+      syncedCount,
+      nowStr,
+      inTradingHours
+    }
+  } catch {
+    syncStatus.value = null
   } finally {
     loading.value = false
   }

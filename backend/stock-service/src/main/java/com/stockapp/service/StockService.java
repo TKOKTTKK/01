@@ -123,6 +123,38 @@ public class StockService {
     }
 
     /**
+     * 按代码批量取实时行情：可视区高频轮询专用（前端 visiblePricePolling.ts）。
+     * 跟 withQuote 的场景差异——withQuote 是"我已经查出一批 Stock 实体，
+     * 顺带把行情补上"；这里反过来，调用方只有 code 列表（当前屏幕可见的
+     * 股票），先按 code 批量查基础信息拿到 name（marketService.getQuotes
+     * 的 mock 数据源要用），再一次批量取行情。
+     *
+     * MAX_BATCH_CODES 限流：这是 permitAll 的公开接口，不加上限的话
+     * ?codes=A,B,C...（几千个）会绕过"一屏最多几十只"这个前端假设，
+     * 直接查数据库+打满 Redis 批量指令。正常一屏可见行数远低于这个上限，
+     * 不影响真实使用。
+     */
+    private static final int MAX_BATCH_CODES = 50;
+
+    public List<QuoteVO> getQuotesByCodes(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return List.of();
+        }
+        List<String> distinct = codes.stream().distinct().limit(MAX_BATCH_CODES).toList();
+        List<Stock> stocks = stockMapper.selectList(
+                new LambdaQueryWrapper<Stock>().in(Stock::getCode, distinct));
+        if (stocks.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> nameByCode = stocks.stream()
+                .collect(Collectors.toMap(Stock::getCode, Stock::getName, (a, b) -> a));
+        Map<String, QuoteVO> quotes = marketService.getQuotes(nameByCode);
+        // 按传入顺序返回，跳过库里查不到的 code（比如已下架），不报错——
+        // 轮询场景下，某几只股票这一轮没取到，不该影响其余股票正常更新
+        return distinct.stream().map(quotes::get).filter(java.util.Objects::nonNull).toList();
+    }
+
+    /**
      * 批量补充行情：改用 marketService.getQuotes 一次性取一批，替代原来
      * 每只股票单独调 toVO -> marketService.getQuote 串行打 N 次 Redis。
      * 8 只股票感觉不到差别，几千只时这一处就是几秒延迟的直接来源。

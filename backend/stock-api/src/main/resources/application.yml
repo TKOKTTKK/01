@@ -22,10 +22,6 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2s
-      ssl:
-        # 云平台的 Redis（如 Upstash 等常见免费方案）大多要求 TLS 连接，
-        # 本地 docker-compose 起的 Redis 不需要，默认关闭，按需用环境变量打开
-        enabled: ${REDIS_SSL_ENABLED:false}
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai

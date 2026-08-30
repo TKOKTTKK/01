@@ -137,3 +137,18 @@ export function unobserveStockRow(el: Element): void {
   codeGetters.delete(el)
   visible.delete(el)
 }
+
+/**
+ * 供 visiblePricePolling.ts 查询"当前屏幕可见的股票代码有哪些"——复用
+ * 同一个 IntersectionObserver 的可见集合，不再为轮询单独起一个 observer
+ * （同一批 DOM 元素被两个 observer 各自观察一遍是纯浪费）。不保证顺序、
+ * 不做去重之外的处理，调用方按需处理。
+ */
+export function getVisibleCodes(): string[] {
+  const codes: string[] = []
+  for (const el of visible) {
+    const getCode = codeGetters.get(el)
+    if (getCode) codes.push(getCode())
+  }
+  return codes
+}

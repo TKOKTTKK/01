@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Arrays;
 import java.util.List;
 
 @RestController
@@ -54,6 +55,20 @@ public class StockController {
     public Result<PageResult<StockVO>> list(@RequestParam(defaultValue = "1") int page,
                                             @RequestParam(defaultValue = "50") int size) {
         return Result.success(stockService.listPage(page, size));
+    }
+
+    /**
+     * 批量取实时行情：GET /api/stocks/quotes?codes=600519,000001,300750
+     * 可视区高频轮询专用——一次请求拿完当前屏幕可见的全部股票的最新价格，
+     * 不是逐只股票单独轮询（那样 N 只可见股票 = 每轮 N 个请求，量级完全
+     * 不同）。codes 用逗号分隔的单个查询参数，不用 Spring 对 List 参数的
+     * 重复 key 绑定（?codes=A&codes=B），前端拼接/后端解析都更直接。
+     */
+    @GetMapping("/quotes")
+    public Result<List<QuoteVO>> quotesBatch(@RequestParam String codes) {
+        List<String> list = Arrays.stream(codes.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+        return Result.success(stockService.getQuotesByCodes(list));
     }
 
     /** 股票详情 */

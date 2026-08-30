@@ -32,24 +32,6 @@ public class RedisCacheHelper {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
-    /**
-     * 取异常链最底层的 cause 及其类名。
-     *
-     * 【为什么需要这个】Lettuce/Spring Data Redis 连接失败时，顶层异常
-     * 消息几乎总是千篇一律的 "Unable to connect to Redis"，真正有用的
-     * 原因（DNS 解析失败 UnknownHostException？端口拒绝 ConnectException？
-     * TLS 握手失败 SSLException？认证失败？）都包在更底层的 cause 里。
-     * 只打 e.getMessage() 等于永远看不到根因，这也是"连不上 Redis"这类
-     * 问题排查起来反复兜圈子的直接原因——现在统一打到最底层。
-     */
-    private static String rootCause(Throwable e) {
-        Throwable t = e;
-        while (t.getCause() != null && t.getCause() != t) {
-            t = t.getCause();
-        }
-        return t.getClass().getSimpleName() + ": " + t.getMessage();
-    }
-
     public <T> T getOrLoad(String key, Duration ttl, TypeReference<T> type, Supplier<T> loader) {
         return getOrLoad(key, ttl, type, loader, v -> true);
     }
@@ -70,7 +52,7 @@ public class RedisCacheHelper {
                 return objectMapper.readValue(cached, type);
             }
         } catch (Exception e) {
-            log.warn("Redis 读取失败, key={}, 降级直查: {}", key, rootCause(e));
+            log.warn("Redis 读取失败, key={}, 降级直查: {}", key, e.getMessage());
         }
         T value = loader.get();
         try {
@@ -78,7 +60,7 @@ public class RedisCacheHelper {
                 redis.opsForValue().set(key, objectMapper.writeValueAsString(value), ttl);
             }
         } catch (Exception e) {
-            log.warn("Redis 写入失败, key={}: {}", key, rootCause(e));
+            log.warn("Redis 写入失败, key={}: {}", key, e.getMessage());
         }
         return value;
     }
@@ -115,7 +97,7 @@ public class RedisCacheHelper {
                 }
             }
         } catch (Exception e) {
-            log.warn("Redis 批量读取失败，全部降级为回源计算: {}", rootCause(e));
+            log.warn("Redis 批量读取失败，全部降级为回源计算: {}", e.getMessage());
         }
 
         Map<String, T> result = new LinkedHashMap<>();
@@ -127,7 +109,7 @@ public class RedisCacheHelper {
                     result.put(code, objectMapper.readValue(raw, type));
                     continue;
                 } catch (Exception e) {
-                    log.warn("缓存反序列化失败, code={}, 视为未命中重新计算: {}", code, rootCause(e));
+                    log.warn("缓存反序列化失败, code={}, 视为未命中重新计算: {}", code, e.getMessage());
                 }
             }
             missing.add(code);
@@ -152,13 +134,13 @@ public class RedisCacheHelper {
                         conn.setEx(keyFn.apply(e.getKey()), ttl.getSeconds(),
                                 objectMapper.writeValueAsString(e.getValue()));
                     } catch (Exception ex) {
-                        log.warn("批量写回序列化失败, code={}: {}", e.getKey(), rootCause(ex));
+                        log.warn("批量写回序列化失败, code={}: {}", e.getKey(), ex.getMessage());
                     }
                 }
                 return null;
             });
         } catch (Exception e) {
-            log.warn("Redis 批量写回失败（不影响本次返回结果，只是下次仍会回源）: {}", rootCause(e));
+            log.warn("Redis 批量写回失败（不影响本次返回结果，只是下次仍会回源）: {}", e.getMessage());
         }
     }
 
@@ -166,7 +148,7 @@ public class RedisCacheHelper {
         try {
             redis.delete(key);
         } catch (Exception e) {
-            log.warn("Redis 删除失败, key={}: {}", key, rootCause(e));
+            log.warn("Redis 删除失败, key={}: {}", key, e.getMessage());
         }
     }
 }
