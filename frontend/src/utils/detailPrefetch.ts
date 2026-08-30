@@ -4,6 +4,7 @@ import {
 import type { Indicators, Intraday, KlineItem, Quote, StockItem } from '@/api/types'
 import { writeIntradayDiskCache, writeQuoteDiskCache } from './chartDiskCache'
 import { fetchKlineIncremental } from './klineIncremental'
+import { shouldSkipPreload } from './preload'
 
 /**
  * 股票详情页数据预取缓存。
@@ -31,15 +32,22 @@ import { fetchKlineIncremental } from './klineIncremental'
  * 【为什么要设 TTL】预取只应该服务"预取 -> 马上点进去"这一小段窗口，
  * 如果用户划走了、几十秒后又点别的股票，不应该用很久以前预取的过期数据。
  *
- * 【v3.2 真实点击优先】"停下来即取"改成一屏内并发发起后（见 viewportPrefetch.ts），
- * 一次停留可能同时有好几个预取请求在飞行。如果用户这时候真的点开了其中一只，
- * 这次点击应得优先带宽，不该跟另外几个"用户根本没点"的预取请求抢。
+ * 【v3.2 真实点击优先，v3.4 收窄为仅弱网触发】"停下来即取"改成一屏内并发
+ * 发起后（见 viewportPrefetch.ts），一次停留可能同时有好几个预取请求在
+ * 飞行。最初的想法是"用户一点击，其他都让路"，实测发现这用力过猛：
+ * 好网络下（已确认后端 HTTP/2 多路复用）几个小 JSON 请求跟真实点击的请求
+ * 同时飞着完全不会互相拖慢，取消反而是浪费已经发出去、马上就能回来的数据——
+ * 表现为"划回去看别的股票，明明刚预取过却没有缓存"。
+ * 现在改成：只有 shouldSkipPreload() 判定为弱网/省流量时，才真的取消其他
+ * 预取来保护这一次点击；好网络下点击不取消任何东西，让它们自然完成。
  * 做法：每个 Entry 持有自己的 AbortController，贯穿它发出的全部请求
  * （bootstrap / 降级三连 / deep 预取的 K线+指标）；真实导航发生时调用
- * cancelOtherPrefetches(exceptCode)，把缓存里除了目标股票之外、还在飞行中
- * 的请求全部取消掉。取消不是错误，http.ts 的响应拦截器已经识别
- * ERR_CANCELED 并跳过全局报错提示；这里的 swallow() 也会接住，不会
- * 冒泡成未处理异常。
+ * cancelOtherPrefetches(exceptCode)，弱网下把缓存里除了目标股票之外、
+ * 还在飞行中的请求取消掉，并通知 viewportPrefetch 把对应股票从"60秒去重表"
+ * 里也清掉（见 onPrefetchCancelled）——否则被取消的股票要白白晾 60 秒，
+ * 用户划回去也不会重新触发预取。取消不是错误，http.ts 的响应拦截器已经
+ * 识别 ERR_CANCELED 并跳过全局报错提示；这里的 swallow() 也会接住，
+ * 不会冒泡成未处理异常。
  */
 const TTL_MS = 8000
 
@@ -55,6 +63,18 @@ export interface Entry {
 }
 
 const cache = new Map<string, Entry>()
+
+/**
+ * 取消发生时的旁路通知——viewportPrefetch.ts 的"60秒去重表"跟这里是两个
+ * 独立模块的状态，取消一个 code 的预取时，需要顺带告诉它"这个 code 可以
+ * 重新尝试了"，否则用户划回去也要白等到 60 秒自然过期。用注册回调而不是
+ * 让本文件反过来 import viewportPrefetch，避免两个文件互相 import 造成
+ * 循环依赖（viewportPrefetch 本来就要 import 这个文件的 prefetchStockDetail）。
+ */
+const cancelListeners: Array<(code: string) => void> = []
+export function onPrefetchCancelled(fn: (code: string) => void): void {
+  cancelListeners.push(fn)
+}
 
 /** 标记 rejection 已被处理（不冒泡到全局兜底），同时不影响真正的消费方拿到错误 */
 function swallow<T>(p: Promise<T>): Promise<T> {
@@ -144,18 +164,22 @@ export function getFreshEntry(code: string): Entry | null {
 }
 
 /**
- * 真实导航发生时调用：取消缓存里除了目标股票之外、仍在飞行中的预取请求，
- * 把带宽让给真正要展示的这一个。
+ * 真实导航发生时调用：只有在弱网/省流量场景下，才取消缓存里除了目标股票
+ * 之外、仍在飞行中的预取请求，把带宽让给真正要展示的这一个——好网络下
+ * HTTP/2 多路复用扛得住这点并发，取消反而是纯浪费，直接跳过。
  *
  * 【为什么直接删掉 entry，而不是留着等它"取消后"的状态】被取消的请求
- * 不会再有正常结果，留在 cache 里没有意义，删掉后如果用户之后又划回来看到
- * 这只股票，会正常触发一次全新的预取，不会因为命中一个"已作废"的 entry
- * 而拿到 abort 错误。
+ * 不会再有正常结果，留在 cache 里没有意义。同时通知
+ * viewportPrefetch 的去重表也一并清掉，用户之后划回来看到这只股票，
+ * 会正常触发一次全新的预取，不会因为① 命中一个"已作废"的 entry 拿到
+ * abort 错误，或者 ② 卡在去重表里白等 60 秒才能重新预取。
  */
 export function cancelOtherPrefetches(exceptCode: string): void {
+  if (!shouldSkipPreload()) return // 好网络：不取消，让其他预取自然完成
   for (const [code, entry] of cache) {
     if (code === exceptCode) continue
     entry.controller.abort()
     cache.delete(code)
+    for (const fn of cancelListeners) fn(code)
   }
 }

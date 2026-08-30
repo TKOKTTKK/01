@@ -1,4 +1,4 @@
-import { prefetchStockDetail } from './detailPrefetch'
+import { onPrefetchCancelled, prefetchStockDetail } from './detailPrefetch'
 import { onIdle, shouldSkipPreload } from './preload'
 
 /**
@@ -28,8 +28,9 @@ import { onIdle, shouldSkipPreload } from './preload'
  *    股票在短时间内重复发请求，跟"这一屏能不能被覆盖"是两件事；
  * 3. 命中"停下来"之后仍推迟到浏览器空闲（onIdle）再真正发请求，不与滚动
  *    收尾的渲染/绘制抢主线程；一屏内的请求会在同一个空闲时间片里一起发出；
- * 4. 真实点击发生时，同一屏内其他还在飞行中的预取请求会被取消
- *    （cancelOtherPrefetches），把带宽让给真正要展示的这一个；
+ * 4. 真实点击发生时，仅在弱网/省流量场景下才取消同一屏内其他还在飞行中的
+ *    预取请求，把带宽让给真正要展示的这一个；好网络下不取消，让它们
+ *    自然完成（见 detailPrefetch.ts 的 cancelOtherPrefetches）；
  * 5. 省流量模式 / 2G 网络整体跳过（与路由预载同一判定）。
  *
  * 【实现位置说明】统一收敛到 StockRow 组件（每行观察自己 + 模块级共享
@@ -46,6 +47,10 @@ const SCROLL_IDLE_MS = 300
 
 /** code -> 上次尝试时间，用于避免短时间内重复预取同一只股票 */
 const attempted = new Map<string, number>()
+// v3.4 修复：detailPrefetch 弱网下取消某只股票的预取时，这里的去重记录
+// 得跟着清掉，否则用户之后划回来看这只股票，会被这张表当成"刚试过"
+// 直接跳过，白白晾到 60 秒自然过期才能重新预取
+onPrefetchCancelled((code) => attempted.delete(code))
 /** 观察元素 -> 取当前 code 的函数（行组件复用时 props 会变，用 getter 取最新值） */
 const codeGetters = new WeakMap<Element, () => string>()
 /** 当前处于视口内的元素（持续维护，不代表已发起预取） */
