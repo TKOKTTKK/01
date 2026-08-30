@@ -1,4 +1,4 @@
-import { request } from './http'
+import { request, requestLowPriority } from './http'
 import type {
   DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, PageResult, Period, Quote, SimAccount, SimCashFlow, SimPosition,
@@ -13,29 +13,48 @@ export const searchStocks = (keyword: string) =>
 export const listStocks = (page = 1, size = 50) =>
   request<PageResult<StockItem>>({ url: '/api/stocks', params: { page, size } })
 
-export const getStock = (code: string, signal?: AbortSignal) =>
-  request<StockItem>({ url: `/api/stocks/${code}`, signal })
+/**
+ * lowPriority：仅供预取场景传 true——改走原生 fetch + Fetch Priority('low')
+ * 发出（见 http.ts 的 requestLowPriority）。好网络下预取请求不再被真实点击
+ * 取消（见 detailPrefetch.ts），靠这个字段让浏览器网络栈自己在调度时把
+ * 真实点击的请求排得靠前，而不是粗暴地互相取消。真实页面加载的调用不传
+ * 这个参数，走原来的 axios 路径，无行为变化。
+ */
+export const getStock = (code: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}`, signal }
+  return lowPriority ? requestLowPriority<StockItem>(cfg) : request<StockItem>(cfg)
+}
 
-export const getQuote = (code: string, signal?: AbortSignal) =>
-  request<Quote>({ url: `/api/stocks/${code}/quote`, signal })
+export const getQuote = (code: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}/quote`, signal }
+  return lowPriority ? requestLowPriority<Quote>(cfg) : request<Quote>(cfg)
+}
 
-export const getIntraday = (code: string, signal?: AbortSignal) =>
-  request<Intraday>({ url: `/api/stocks/${code}/intraday`, signal })
+export const getIntraday = (code: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}/intraday`, signal }
+  return lowPriority ? requestLowPriority<Intraday>(cfg) : request<Intraday>(cfg)
+}
 
 /** 详情页首屏聚合：一次请求拿到 stock + quote + intraday（冷启动专用） */
-export const getDetailBootstrap = (code: string, signal?: AbortSignal) =>
-  request<DetailBootstrap>({ url: `/api/stocks/${code}/detail-bootstrap`, signal })
+export const getDetailBootstrap = (code: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}/detail-bootstrap`, signal }
+  return lowPriority ? requestLowPriority<DetailBootstrap>(cfg) : request<DetailBootstrap>(cfg)
+}
 
 /**
  * K线：传 limit 走全量/tail 语义；传 since（yyyy-MM-dd）则只返回该日期
  * 之后的新记录，用于本地已有历史缓存时的增量拉取（见 klineIncremental.ts）。
  * 两者互斥，since 优先——传了 since 时 limit 会被后端忽略。
  */
-export const getKline = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal) =>
-  request<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period, limit, since }, signal })
+export const getKline = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}/kline`, params: { period, limit, since }, signal }
+  return lowPriority ? requestLowPriority<KlineItem[]>(cfg) : request<KlineItem[]>(cfg)
+}
 
-export const getIndicators = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal) =>
-  request<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period, limit, since }, signal })
+export const getIndicators = (code: string, period: Period, limit?: number, since?: string, signal?: AbortSignal, lowPriority?: boolean) => {
+  const cfg = { url: `/api/stocks/${code}/indicators`, params: { period, limit, since }, signal }
+  return lowPriority ? requestLowPriority<Indicators>(cfg) : request<Indicators>(cfg)
+}
 
 export const getStockNews = (code: string, limit = 20) =>
   request<NewsItem[]>({ url: `/api/stocks/${code}/news`, params: { limit } })

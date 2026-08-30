@@ -16,20 +16,23 @@ import { readKlineDiskCacheRaw, writeKlineDiskCache } from './chartDiskCache'
  * 另一个忘了改），收敛成一个函数，两处都只管调用。
  */
 export async function fetchKlineIncremental(
-  code: string, period: Period, signal?: AbortSignal
+  code: string, period: Period, signal?: AbortSignal, lowPriority?: boolean
 ): Promise<{ k: KlineItem[]; i: Indicators }> {
   const local = await readKlineDiskCacheRaw(code, period)
 
   if (!local || local.kline.length === 0) {
-    const [k, i] = await Promise.all([getKline(code, period, undefined, undefined, signal), getIndicators(code, period, undefined, undefined, signal)])
+    const [k, i] = await Promise.all([
+      getKline(code, period, undefined, undefined, signal, lowPriority),
+      getIndicators(code, period, undefined, undefined, signal, lowPriority)
+    ])
     writeKlineDiskCache(code, period, k, i).catch(() => { /* 静默 */ })
     return { k, i }
   }
 
   const sinceDate = local.kline[local.kline.length - 1].date
   const [newKline, newIndicators] = await Promise.all([
-    getKline(code, period, undefined, sinceDate, signal),
-    getIndicators(code, period, undefined, sinceDate, signal)
+    getKline(code, period, undefined, sinceDate, signal, lowPriority),
+    getIndicators(code, period, undefined, sinceDate, signal, lowPriority)
   ])
 
   const k = mergeKline(local.kline, newKline)

@@ -48,6 +48,15 @@ import { shouldSkipPreload } from './preload'
  * 用户划回去也不会重新触发预取。取消不是错误，http.ts 的响应拦截器已经
  * 识别 ERR_CANCELED 并跳过全局报错提示；这里的 swallow() 也会接住，
  * 不会冒泡成未处理异常。
+ *
+ * 【v3.5 Fetch Priority】好网络下不取消，那"预取请求"和"真实点击的请求"
+ * 就是完全平等的并发请求，谁也不比谁优先——这不是我们想要的：预取终归是
+ * 投机性的，真实点击才是用户此刻真正在等的那一个。本文件发出的每个请求
+ * 都统一标了 lowPriority（见各处 getXxx(..., true) 调用），底层走原生
+ * fetch + Fetch Priority('low')（见 http.ts 的 requestLowPriority）。
+ * 不取消、也不用等真实点击发生才临时降级，从发出的那一刻起就是"低优先级"，
+ * 由浏览器网络栈在调度并发请求时自己向真实点击（默认/高优先级）倾斜，
+ * 比"要么完全平等、要么一刀切取消"更精细，且不受网络好坏影响都生效。
  */
 const TTL_MS = 8000
 
@@ -82,7 +91,13 @@ function swallow<T>(p: Promise<T>): Promise<T> {
   return p
 }
 
-function makeEntry(code: string): Entry {
+/**
+ * lowPriority 是显式传入而不是本函数自己决定的——makeEntry 有两个调用方，
+ * 优先级含义完全相反：prefetchStockDetail（投机性预取）该标 low；
+ * getPrefetchedOrFetch 命中缓存落空、现场发起的那次（用户此刻正在等的
+ * 真实数据）绝不能标 low，否则"没预取过就点开"反而比"预取过再点开"慢。
+ */
+function makeEntry(code: string, lowPriority: boolean): Entry {
   const controller = new AbortController()
   const { signal } = controller
   // 聚合接口失败时降级为三次独立请求；memo 化保证三个字段共享同一组降级请求
@@ -90,14 +105,14 @@ function makeEntry(code: string): Entry {
   const ensureLegacy = () => {
     if (!legacy) {
       legacy = {
-        stock: swallow(getStock(code, signal)),
-        quote: swallow(getQuote(code, signal)),
-        intraday: swallow(getIntraday(code, signal))
+        stock: swallow(getStock(code, signal, lowPriority)),
+        quote: swallow(getQuote(code, signal, lowPriority)),
+        intraday: swallow(getIntraday(code, signal, lowPriority))
       }
     }
     return legacy
   }
-  const boot = getDetailBootstrap(code, signal)
+  const boot = getDetailBootstrap(code, signal, lowPriority)
   boot.catch(() => { /* 由下方各字段的 catch 分支处理 */ })
 
   const intraday = boot.then(b => b.intraday).catch(() => ensureLegacy().intraday)
@@ -125,7 +140,7 @@ function fresh(code: string): Entry | null {
 function deepen(entry: Entry, code: string): void {
   if (entry.klineDay) return
   // 增量拉取：本地磁盘有历史缓存就只问后端要新增部分，见 klineIncremental.ts
-  const combined = fetchKlineIncremental(code, 'day', entry.controller.signal)
+  const combined = fetchKlineIncremental(code, 'day', entry.controller.signal, true)
   // 注意：分别对派生出的两个 .then() 单独 swallow，而不是只 swallow combined 本身——
   // combined 本身有没有 catch 不影响它派生出的子 Promise 是否会成为"未处理的 rejection"，
   // 两个子 Promise 各自需要有人接住，用户全程没进详情页（entry 从未被消费）时同样如此。
@@ -143,17 +158,17 @@ function deepen(entry: Entry, code: string): void {
 export function prefetchStockDetail(code: string, opts?: { deep?: boolean }): void {
   let entry = fresh(code)
   if (!entry) {
-    entry = makeEntry(code)
+    entry = makeEntry(code, true) // 投机性预取，标低优先级
     cache.set(code, entry)
   }
   if (opts?.deep) deepen(entry, code)
 }
 
-/** 详情页读取：命中新鲜预取就直接复用，否则现场发起请求 */
+/** 详情页读取：命中新鲜预取就直接复用，否则现场发起请求（真实需要，不投机，走正常优先级） */
 export function getPrefetchedOrFetch(code: string): Entry {
   const hit = fresh(code)
   if (hit) return hit
-  const entry = makeEntry(code)
+  const entry = makeEntry(code, false)
   cache.set(code, entry)
   return entry
 }
