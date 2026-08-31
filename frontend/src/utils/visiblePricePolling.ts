@@ -2,6 +2,7 @@ import { getQuotesBatch } from '@/api'
 import type { StockItem } from '@/api/types'
 import { getVisibleCodes } from './viewportPrefetch'
 import { shouldSkipPreload } from './preload'
+import { isTradingHours } from './tradingHours'
 import { useMarketStore } from '@/stores/market'
 import { useWatchlistStore } from '@/stores/watchlist'
 
@@ -33,28 +34,6 @@ const POLL_MS = 5000
 /** 安全上限：正常一屏可见行数远低于这个数字，纯粹是防极端情况（超大屏/虚拟列表异常） */
 const MAX_CODES = 40
 
-function inTradingHours(): boolean {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).formatToParts(new Date())
-  const get = (type: string) => parts.find(p => p.type === type)?.value ?? ''
-  const weekday = get('weekday')
-  if (weekday === 'Sat' || weekday === 'Sun') return false
-  // 不含法定节假日判断——客户端没有交易日历数据源，节假日当天会误判成
-  // "在交易时间"，届时价格本来就不变，多轮询几次不会展示错误内容，
-  // 顶多是白白发了几个不产生变化的请求，不是正确性问题，先不做这层
-  const hour = Number(get('hour'))
-  const minute = Number(get('minute'))
-  const mins = hour * 60 + minute
-  const morning = mins >= 9 * 60 + 30 && mins <= 11 * 60 + 30
-  const afternoon = mins >= 13 * 60 && mins <= 15 * 60
-  return morning || afternoon
-}
-
 /** 按 code 把新价格 patch 进已有数组（原地修改，不替换数组本身，触发的是逐行而非整页重渲染） */
 function patchInto(list: StockItem[], byCode: Map<string, { price: number; changeAmount: number; changePercent: number }>): void {
   for (const item of list) {
@@ -70,7 +49,7 @@ let polling = false
 
 async function tick(): Promise<void> {
   if (polling) return // 上一轮还没回来就跳过这一轮，不重叠发请求
-  if (document.visibilityState !== 'visible' || shouldSkipPreload() || !inTradingHours()) return
+  if (document.visibilityState !== 'visible' || shouldSkipPreload() || !isTradingHours()) return
   const codes = getVisibleCodes().slice(0, MAX_CODES)
   if (codes.length === 0) return
 

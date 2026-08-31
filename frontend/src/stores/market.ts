@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { getHotStocks, getMarketIndex, listStocks } from '@/api'
 import type { MarketIndex, StockItem } from '@/api/types'
+import { isTradingHours } from '@/utils/tradingHours'
 import { useUserStore } from './user'
 import { useWatchlistStore } from './watchlist'
 
@@ -106,7 +107,8 @@ export const useMarketStore = defineStore('market', () => {
   /**
    * 页面从后台切回前台时立即刷新一次。
    * 否则用户锁屏几分钟后回来，要干等下一个 10 秒 tick 才更新，
-   * 期间看到的是过期价格。
+   * 期间看到的是过期价格。这一次刷新不受交易时段限制——用户主动切回来，
+   * 不管是不是交易时段都该立刻看到最新状态（哪怕是"收盘了，价格没变"）。
    */
   let visibilityBound = false
   function bindVisibility() {
@@ -117,13 +119,21 @@ export const useMarketStore = defineStore('market', () => {
     })
   }
 
-  /** 各页面进入时调用：有缓存立即可见，同时后台刷新并启动全局唯一轮询 */
+  /**
+   * 各页面进入时调用：有缓存立即可见，同时后台刷新并启动全局唯一轮询。
+   *
+   * 【交易时段判断】首次进入的这次 refresh() 不受限制——用户刚打开页面，
+   * 不管是不是交易时段都该看到当前状态。真正按交易时段收紧的是下面
+   * setInterval 里的定时刷新：非交易时段价格根本不会变，10 秒刷一次没有
+   * 意义，白白消耗电量和网络；收盘后想看最新状态，切后台再切回来
+   * （上面的 visibilitychange）或重新进页面依然会刷新一次，不影响体验。
+   */
   function ensure() {
     if (!updatedAt.value || Date.now() - updatedAt.value > 3000) refresh()
     bindVisibility()
     if (timer === undefined) {
       timer = window.setInterval(() => {
-        if (document.visibilityState === 'visible') refresh()
+        if (document.visibilityState === 'visible' && isTradingHours()) refresh()
       }, REFRESH_MS)
     }
   }

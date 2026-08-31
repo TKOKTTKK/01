@@ -18,6 +18,8 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -231,10 +233,33 @@ public class KlineService {
                 .build();
     }
 
+    /**
+     * 按 [from, to) 对一个指标 Map 里的每条子序列做同步切片。
+     *
+     * 【真正的 bug，感谢真机日志才定位到】这里不能用 List.copyOf()——
+     * MA/RSI 这类指标在"暖机期"合法返回 null（IndicatorCalculator 顶部
+     * 注释："序列前部无法计算的点返回 null"），而 List.copyOf() / List.of()
+     * 只要拷贝的列表里有任何一个 null 元素就会抛 NullPointerException，
+     * 这是 JDK 不可变集合自己的强约束，不是切片逻辑算错了下标。
+     * 日K 因为默认切片够长（250 根，天然避开前面几十个 null）一直没暴露；
+     * 月K 数据量小（500 天原始数据换算下来才 20 多根月K，远不够 MA60
+     * 需要的 60 个周期），MA60 序列几乎全是 null，一点必炸。
+     * 改用 Collections.unmodifiableList(new ArrayList<>(...))：拷出一份
+     * 独立列表（不再持有对原始大列表的视图引用）、包一层不可变外壳，
+     * 但允许内容含 null，语义上和 List.copyOf() 的"防止调用方拿到的结果
+     * 引用到原始可变列表"这个目的完全一样，只是不再无理由拒绝合法的 null。
+     *
+     * 【防御性 clamp】依然保留：每条子序列各自 clamp 一次 to，不直接假设
+     * 它跟 dates 等长，理由见上一版注释——防止任何跨版本缓存脏数据场景下
+     * 变成越界异常，宁可结果短一点也不要整个请求 500。
+     */
     private static Map<String, List<BigDecimal>> sliceMap(Map<String, List<BigDecimal>> src, int from, int to) {
         Map<String, List<BigDecimal>> out = new LinkedHashMap<>();
         for (Map.Entry<String, List<BigDecimal>> e : src.entrySet()) {
-            out.put(e.getKey(), List.copyOf(e.getValue().subList(from, to)));
+            List<BigDecimal> v = e.getValue();
+            int safeTo = Math.min(to, v.size());
+            int safeFrom = Math.min(from, safeTo);
+            out.put(e.getKey(), Collections.unmodifiableList(new ArrayList<>(v.subList(safeFrom, safeTo))));
         }
         return out;
     }
