@@ -25,8 +25,9 @@
         </div>
         <div v-else class="debug-miss">今天还没开始同步（等待启动延迟/空闲触发，或还没到今天）</div>
         <div class="debug-hit">
-          kline 表里带全量同步 ETag 的日K记录数：{{ syncStatus.syncedCount }}
-          （区分于"仅点开过、走普通请求缓存"的记录——那些没有 etag 字段）
+          kline 表里 period=day 的记录数：{{ syncStatus.syncedCount }}
+          （全量同步 + 用户点开过的日K都算在内，两者共用同一张表；
+          全量同步跑完理论上应该接近甚至等于股票总数 {{ syncStatus.total || '?' }}）
         </div>
         <div class="debug-hit">
           当前（Asia/Shanghai）：{{ syncStatus.nowStr }} · {{ syncStatus.inTradingHours ? '✅ 交易时段内，价格轮询应该在跑' : '⏸ 非交易时段，价格轮询原地待命' }}
@@ -206,8 +207,8 @@ async function checkSyncStatus() {
     const metaRows = await getAll<{ key: string; value: unknown }>(db, 'meta')
     const state = metaRows.find(r => r.key === 'fullSyncState')?.value as
       { codes: string[]; nextIndex: number; dateStr: string } | undefined
-    const klines = await getAll<{ code: string; period: string; klineEtag?: string }>(db, 'kline')
-    const syncedCount = klines.filter(k => k.period === 'day' && k.klineEtag).length
+    const klines = await getAll<{ code: string; period: string }>(db, 'kline')
+    const syncedCount = klines.filter(k => k.period === 'day').length
     const { inTradingHours, nowStr } = checkTradingHours()
     syncStatus.value = {
       today: todayStr(),

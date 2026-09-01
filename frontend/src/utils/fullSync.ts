@@ -1,9 +1,6 @@
-import { getHotStocks, getIndicatorsConditional, getKlineConditional, listStocks } from '@/api'
-import type { Indicators, KlineItem } from '@/api/types'
-import {
-  bulkWriteKlineDiskCache, getSyncMeta, pruneStaleGlobally,
-  readKlineDiskCacheRaw, readKlineEtags, setSyncMeta, touchKlineTs
-} from './chartDiskCache'
+import { getHotStocks, listStocks } from '@/api'
+import { fetchKlineIncremental } from './klineIncremental'
+import { getSyncMeta, pruneStaleGlobally, setSyncMeta } from './chartDiskCache'
 import { onIdle, shouldSkipPreload } from './preload'
 import { useWatchlistStore } from '@/stores/watchlist'
 
@@ -33,13 +30,28 @@ import { useWatchlistStore } from '@/stores/watchlist'
  *    主线程和网络，不会因为一次性发出几百个请求造成网络抖动。
  * 3. 断点续传：进度（当天用的完整 codes 顺序 + 处理到第几个）存在
  *    IndexedDB 的 meta 表，跨次开 App 记得住；同一天内已经完整跑完一轮的
- *    不会重复跑——已同步的股票靠 ETag 条件请求，重新验证的代价是一次
- *    很小的 304 往返，不是重新传一遍全量数据。
- * 4. 每个请求都走 low-priority（getKlineConditional/getIndicatorsConditional
- *    底层复用 requestConditional，跟 requestLowPriority 一样标了 Fetch
- *    Priority('low')），保证真的有用户交互触发的请求（点击、可视区预取）
- *    发生时，浏览器网络栈天然向那些倾斜，不需要额外写"检测用户是否正
- *    在高频操作"的逻辑——这是复用第 3 轮改造已经建好的机制，不是重新发明。
+ *    不会重复跑。
+ * 4. 每个请求都走 low-priority（fetchKlineIncremental 的 lowPriority 参数，
+ *    跟 requestLowPriority 一样标了 Fetch Priority('low')），保证真的有
+ *    用户交互触发的请求（点击、可视区预取）发生时，浏览器网络栈天然向
+ *    那些倾斜，不需要额外写"检测用户是否正在高频操作"的逻辑——这是复用
+ *    第 3 轮改造已经建好的机制，不是重新发明。
+ *
+ * 【v3.6：判断"要不要重新拉"的方式换了】最初这里是自己接的一套 HTTP
+ * ETag/If-None-Match 条件请求（后端 EtagConfig.java 那套），真机验证时
+ * 发现 ETag 没生效——後端配置本身检查下来没发现明显问题，但没有出网权限
+ * 没法实测确认卡在哪一环（Railway 边缘代理剥掉了头？还是别的原因），
+ * 与其死磕一套自己独立维护、目前又验证不了的机制，不如直接复用项目里
+ * 本来就有、详情页点开股票一直在用、经过验证的 fetchKlineIncremental
+ * （klineIncremental.ts）——它本身就是"本地有数据就只问增量，本地没数据
+ * 就整包拉"，跟这里想要的行为完全一致，不需要另起一套判断逻辑。
+ * 代价：换成这条路径后，每只股票的写入变成 fetchKlineIncremental 内部
+ * 各自独立的 db.kline.put()，不再是一批股票攒起来一次 bulkPut——写事务
+ * 数量从"8 批"变回"500 次"，但这些写入本身分散在整个同步过程（网络
+ * 请求耗时远大于单次 IndexedDB 写入），不会集中在某一帧造成卡顿，
+ * 换来的是不用再维护一套独立的、目前验证不了是否可靠的条件请求机制，
+ * 这个取舍是划算的。后端 EtagConfig.java 保留不动——ETag 本身对浏览器
+ * 自己的原生 HTTP 缓存依然有用，只是不再由这里的自定义 JS 逻辑消费。
  */
 
 /** 分成几批：5~10 之间，具体数字对结果影响不大，8 是折中 */
@@ -51,14 +63,6 @@ const POOL_SIZE = 6
 const YIELD_TIMEOUT = 1500
 /** 首次调度延迟：等应用自己的首屏渲染、路由预载先跑一段，不跟启动关键路径抢 */
 const START_DELAY = 5000
-
-const EMPTY_INDICATORS: Indicators = {
-  dates: [],
-  ma: { ma5: [], ma10: [], ma20: [], ma60: [] },
-  macd: { dif: [], dea: [], macd: [] },
-  kdj: { k: [], d: [], j: [] },
-  rsi: { rsi6: [], rsi12: [], rsi24: [] }
-}
 
 interface SyncState {
   /** 今天用的完整同步顺序，跨批次/跨次打开 App 保持稳定，断点续传靠它定位 */
@@ -119,46 +123,12 @@ async function buildPriorityList(): Promise<string[]> {
   return ordered
 }
 
-interface WriteRecord {
-  code: string
-  period: 'day'
-  kline: KlineItem[]
-  indicators: Indicators
-  klineEtag?: string
-  indicatorsEtag?: string
-}
-
-/** 同步单只股票的日K+指标；两个都 304 就只需要"续命" ts，不产生写入 */
-async function syncOne(code: string): Promise<{ code: string; touch: boolean; record?: WriteRecord }> {
-  const localEtags = await readKlineEtags(code, 'day')
-  const [klineRes, indRes] = await Promise.all([
-    getKlineConditional(code, 'day', localEtags?.klineEtag),
-    getIndicatorsConditional(code, 'day', localEtags?.indicatorsEtag)
-  ])
-
-  if (klineRes.notModified && indRes.notModified) {
-    return { code, touch: true }
-  }
-
-  // 只要有一个 304，需要用本地已有数据补上那一半，避免覆盖成空的
-  const needExisting = klineRes.notModified || indRes.notModified
-  const existing = needExisting ? await readKlineDiskCacheRaw(code, 'day') : null
-
-  return {
-    code,
-    touch: false,
-    record: {
-      code,
-      period: 'day',
-      kline: klineRes.notModified ? (existing?.kline ?? []) : klineRes.data,
-      indicators: indRes.notModified ? (existing?.indicators ?? EMPTY_INDICATORS) : indRes.data,
-      klineEtag: klineRes.notModified ? localEtags?.klineEtag : (klineRes.etag ?? undefined),
-      indicatorsEtag: indRes.notModified ? localEtags?.indicatorsEtag : (indRes.etag ?? undefined)
-    }
-  }
-}
-
-/** 小并发池：从队列里最多同时取 POOL_SIZE 个在跑，跑完一个再取下一个，不是"批内还要再分批" */
+/**
+ * 小并发池：从队列里最多同时取 POOL_SIZE 个在跑，跑完一个再取下一个，
+ * 不是"批内还要再分批"。同步单只股票直接复用 fetchKlineIncremental——
+ * 本地有数据只问增量、没数据整包拉、写盘（含合并）全部由它内部处理，
+ * 这里不需要再重复一遍这些逻辑。
+ */
 async function runPool(codes: string[], worker: (code: string) => Promise<void>): Promise<void> {
   let idx = 0
   async function lane(): Promise<void> {
@@ -171,22 +141,14 @@ async function runPool(codes: string[], worker: (code: string) => Promise<void>)
 }
 
 async function processBatch(codes: string[]): Promise<void> {
-  const touched: string[] = []
-  const records: WriteRecord[] = []
   await runPool(codes, async (code) => {
     try {
-      const outcome = await syncOne(code)
-      if (outcome.touch) touched.push(code)
-      else if (outcome.record) records.push(outcome.record)
+      await fetchKlineIncremental(code, 'day', undefined, true)
     } catch {
       // 单只股票失败（网络错误/超时/该股票临时下架）静默跳过，
-      // 不影响这一批其他股票，明天的同步会自然重试
+      // 不影响这一批其他股票，下次同步会自然重试
     }
   })
-  await Promise.all([
-    bulkWriteKlineDiskCache(records),
-    touchKlineTs(touched, 'day')
-  ])
 }
 
 const META_KEY = 'fullSyncState'

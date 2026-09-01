@@ -45,15 +45,6 @@ interface KlineRecord {
   kline: KlineItem[]
   indicators: Indicators
   ts: number
-  /**
-   * 全量后台同步（fullSync.ts）用：记录上次拿到这只股票 K线/指标时后端
-   * 返回的 ETag，下次同步时带着当 If-None-Match 发回去，服务端没变就回
-   * 304，不用重新传一遍 body。只有全量同步会写这两个字段——点开详情页时
-   * 走的是普通请求（api/index.ts 的 getKline/getIndicators），不涉及
-   * 条件请求，这两个字段就是 undefined，不影响正常展示/TTL 判断逻辑。
-   */
-  klineEtag?: string
-  indicatorsEtag?: string
 }
 
 interface QuoteRecord {
@@ -270,62 +261,4 @@ export async function setSyncMeta(key: string, value: unknown): Promise<void> {
   try {
     await db.meta.put({ key, value })
   } catch { /* 静默 */ }
-}
-
-/**
- * 全量同步专用的批量写入：一批（几十只股票）攒成一个数组，一次 bulkPut
- * 提交，而不是每只股票单独 put 一次。IndexedDB 的写事务有固定开销，
- * 500 只股票如果逐条 put，等于 500 次独立事务；bulkPut 把一批合并成
- * 一次事务，主线程占用时间大幅减少，也更符合"不阻塞主线程"的要求。
- * 与 writeKlineDiskCache（点开详情页时的单条写入）刻意分开成两个函数，
- * 是因为调用场景和"一次写几条"这个形状本来就不同，硬合并成一个反而
- * 两边都要兼容对方的参数形状，不值得。
- */
-export async function bulkWriteKlineDiskCache(
-  records: Array<{
-    code: string
-    period: Period
-    kline: KlineItem[]
-    indicators: Indicators
-    klineEtag?: string
-    indicatorsEtag?: string
-  }>
-): Promise<void> {
-  if (records.length === 0) return
-  try {
-    const ts = Date.now()
-    await db.kline.bulkPut(records.map(r => ({ ...r, ts })))
-    await evictOldestKline()
-  } catch { /* 静默 */ }
-}
-
-/**
- * 全量同步专用：服务端确认没变（304）时调用——只把 ts 刷新到当前时间，
- * 不碰 kline/indicators 内容。为什么需要这一步：如果 304 命中时完全不写
- * 任何东西，这条记录的 ts 会停留在很久以前第一次同步成功的那一刻，
- * 30 天保留规则（pruneStaleGlobally）就会误判它是"没人管的旧数据"给
- * 删掉——即使它其实每天都在被全量同步正常验证、内容一直是最新的。
- */
-export async function touchKlineTs(codes: string[], period: Period): Promise<void> {
-  if (codes.length === 0) return
-  try {
-    const now = Date.now()
-    await db.transaction('rw', db.kline, async () => {
-      for (const code of codes) {
-        await db.kline.update([code, period], { ts: now })
-      }
-    })
-  } catch { /* 静默 */ }
-}
-
-/** 全量同步读取某只股票已有的 ETag（用于下次条件请求时带上 If-None-Match），没有就返回 undefined */
-export async function readKlineEtags(
-  code: string, period: Period
-): Promise<{ klineEtag?: string; indicatorsEtag?: string } | null> {
-  try {
-    const rec = await db.kline.get([code, period])
-    return rec ? { klineEtag: rec.klineEtag, indicatorsEtag: rec.indicatorsEtag } : null
-  } catch {
-    return null
-  }
 }

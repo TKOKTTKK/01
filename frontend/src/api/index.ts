@@ -1,4 +1,4 @@
-import { request, requestConditional, requestLowPriority } from './http'
+import { request, requestLowPriority } from './http'
 import type {
   DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, PageResult, Period, Quote, SimAccount, SimCashFlow, SimPosition,
@@ -64,19 +64,6 @@ export const getIndicators = (code: string, period: Period, limit?: number, sinc
   const cfg = { url: `/api/stocks/${code}/indicators`, params: { period, limit, since }, signal }
   return lowPriority ? requestLowPriority<Indicators>(cfg) : request<Indicators>(cfg)
 }
-
-/**
- * 全量后台同步专用（fullSync.ts）：带条件请求的 K线/指标获取，本地有
- * ETag 就带上，服务端没变直接回 { notModified: true }，不产生 body 传输。
- * 跟上面 getKline/getIndicators 分开成独立函数，是因为返回类型完全不同
- * （ConditionalResult 而不是直接的数据），混进同一个函数会让所有原有
- * 调用方都要多判断一层 notModified，没必要。
- */
-export const getKlineConditional = (code: string, period: Period, etag?: string, signal?: AbortSignal) =>
-  requestConditional<KlineItem[]>({ url: `/api/stocks/${code}/kline`, params: { period }, etag, signal })
-
-export const getIndicatorsConditional = (code: string, period: Period, etag?: string, signal?: AbortSignal) =>
-  requestConditional<Indicators>({ url: `/api/stocks/${code}/indicators`, params: { period }, etag, signal })
 
 export const getStockNews = (code: string, limit = 20) =>
   request<NewsItem[]>({ url: `/api/stocks/${code}/news`, params: { limit } })
