@@ -198,3 +198,28 @@ export function cancelOtherPrefetches(exceptCode: string): void {
     for (const fn of cancelListeners) fn(code)
   }
 }
+
+/**
+ * 可视区滑出时调用（viewportPrefetch.ts）：如果这只股票还有预取请求在飞，
+ * 直接取消——"带宽永远只留给可视范围内的股票"这条规则的落地实现。
+ *
+ * 跟上面 cancelOtherPrefetches 的两个关键差异：
+ * 1. 不判断网络好坏，无条件执行——那边"好网络不取消"是因为"真实点击"
+ *    跟"其他预取"本来就可以良性并发，没必要取消；这里不一样：滑出视口的
+ *    股票已经不再有"马上会被看到"的价值，不管网络好不好，继续花带宽在
+ *    看不见的股票上都是纯浪费，没有值得权衡的另一面。
+ * 2. 目标是"这一只"，不是"除了某一只之外的全部"——每一行滑出视口都会
+ *    单独调用一次，触发时机由 IntersectionObserver 的可见性变化决定，
+ *    跟滚动速度、点击与否都无关。
+ *
+ * 同样会通知 viewportPrefetch 的去重表清掉这只股票的记录（见
+ * cancelListeners）——不这样做的话，被取消的股票在 60 秒内划回来也不会
+ * 重新触发预取，用户体验上会显得"划回去怎么还是没加载"。
+ */
+export function abortPrefetchIfPending(code: string): void {
+  const entry = cache.get(code)
+  if (!entry) return
+  entry.controller.abort()
+  cache.delete(code)
+  for (const fn of cancelListeners) fn(code)
+}
