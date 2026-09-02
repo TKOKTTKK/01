@@ -1,4 +1,4 @@
-import { onPrefetchCancelled, prefetchStockDetailBatch } from './detailPrefetch'
+import { dropStockPrefetch, onPrefetchCancelled, prefetchStockDetailBatch } from './detailPrefetch'
 import { shouldSkipPreload } from './preload'
 
 /**
@@ -23,12 +23,20 @@ import { shouldSkipPreload } from './preload'
  * 有同样的校验，见 DetailBootstrapBatchRequest）。正常一屏可见行数
  * （8~12 行）小于 13，淘汰基本只在超大屏/异常场景触发，属于防御性上限。
  *
- * 【淘汰不等于取消网络请求】队列满时挤出最早进入的 code，只是"不再关心
- * 它的结果、清空去重标记以便重新进入时可以再次预取"，不会 abort 已经
- * 发出的批量请求——好网络下这本来就是纯浪费（后端已经在算了，数据也会
- * 正常落到 cache/磁盘），跟 detailPrefetch.ts 里"好网络不取消预取"是
- * 同一个哲学。真正的弱网取消仍然只由 cancelOtherPrefetches 负责，
- * 那是另一套机制（真实点击时才触发），不和这里的队列淘汰混在一起。
+ * 【v4.1 离开视口即中断】早期版本里"离开视口/被队列淘汰"只摘队列、不撤回
+ * 网络请求——理由是好网络下这点并发无所谓，取消反而浪费已经在路上、
+ * 马上就能回来的数据。但实测快速划过几百只股票时，这类"注定不会被看到"
+ * 的预取会大量堆积，成为真实的带宽和请求数压力，也是"网络波动"的来源
+ * 之一。现在改为：一行离开视口（untrack，含被 LRU 挤出、组件卸载）就
+ * 调用 detailPrefetch.dropStockPrefetch 撤回它的预取——但只撤回"还没
+ * 落地"的部分（数据已经到手的 entry 继续留着，划回来直接复用，不重新
+ * 发请求）；同一合并窗口打包的批量请求，只有批次里所有股票都已经划出
+ * 视口才会真的 abort 掉那次网络调用，避免连累同批次里仍然可见的其它
+ * 股票。真正的"重新进入视口"由 track() 重新判定：撤回时去重标记
+ * （attempted）也会被一并清掉（见 dropStockPrefetch → onPrefetchCancelled
+ * 回调），所以划回来一定会发起一次全新请求，不受 60 秒去重窗口影响。
+ * 弱网下的 cancelOtherPrefetches 仍是另一套独立机制（真实点击时触发），
+ * 不和这里的视口离开检测混在一起。
  *
  * 【合并窗口】"进入即取"和"打包成一个请求"本身有一点张力——真的逐个
  * 立即发，就没法打包了。这里用一个很短（MERGE_WINDOW_MS）的合并窗口，
@@ -36,12 +44,12 @@ import { shouldSkipPreload } from './preload'
  * 调用批量接口。窗口本身不重新调度（同一批未落地的 code 只会等同一个
  * 定时器），保证一屏内连续进入视口的多行大概率落进同一次批量请求。
  *
- * 【去重】60 秒内尝试过的 code 不重复发起（attempted 表），这是为了不对
- * 同一只股票短时间内重复发请求；跟"队列淘汰"是两件独立的事——正常划出
- * 视口（未被挤出，只是自然不在视口内）不清这个标记，划回来如果还在
- * 60 秒内不会重新触发；被挤出队列的则立即清掉标记，重新进入视口视为
- * "没预取过"，允许立即再发（对应用户诉求"淘汰出视口外的重新进入视口
- * 没数据也要发请求"）。
+ * 【去重】60 秒内尝试过的 code 默认不重复发起（attempted 表），避免同一
+ * 只股票被短时间内反复预取；但这个默认值会被 dropStockPrefetch 的结果
+ * 覆盖——只要这只股票在离开视口时数据还没落地（entry.done 为 false），
+ * 撤回时就会顺带清掉 attempted 里的标记，重新进入视口一定会发起全新请求
+ * （不受 60 秒窗口限制）。只有"已经落地"的情况才真正吃到 60 秒去重：
+ * 数据已经到手，划回来复用缓存即可，没必要再发一次。
  *
  * 【省流量场景】省流量模式 / 2G 网络整体跳过（与路由预载同一判定）。
  *
@@ -82,7 +90,10 @@ function prune(now: number): void {
   }
 }
 
-/** 队列超过容量时，挤掉最早进入的那个：只摘出队列、清去重标记，不 abort 已发出的请求 */
+/** 队列超过容量时，挤掉最早进入的那个：摘出队列、清去重标记，并撤回它
+ *  "还没落地"的预取——被挤出队列意味着这只股票大概率早就划出视口了
+ *  （容量 13 远小于一屏行数，见文件头注释），跟真正离开视口是同一件事，
+ *  处理方式也保持一致（dropStockPrefetch，只撤回未落地的部分） */
 function evictIfNeeded(): void {
   while (tracked.size > MAX_TRACKED) {
     const oldest = tracked.keys().next().value
@@ -90,6 +101,7 @@ function evictIfNeeded(): void {
     tracked.delete(oldest)
     attempted.delete(oldest)
     pending.delete(oldest)
+    dropStockPrefetch(oldest)
   }
 }
 
@@ -124,10 +136,13 @@ function track(code: string): void {
   }
 }
 
-/** 一行离开视口（滚出屏幕，或组件卸载）：只摘出队列，不清去重标记——正常离开不代表可以立即重新预取 */
+/** 一行离开视口（滚出屏幕，或组件卸载）：摘出队列，并撤回它"还没落地"的
+ *  预取（dropStockPrefetch 内部会顺带清掉去重标记，重新进入视口会发起
+ *  全新请求，见文件头注释【v4.1 离开视口即中断】） */
 function untrack(code: string): void {
   tracked.delete(code)
   pending.delete(code)
+  dropStockPrefetch(code)
 }
 
 function ensureObserver(): IntersectionObserver | null {
