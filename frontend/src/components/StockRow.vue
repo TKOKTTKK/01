@@ -17,7 +17,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { preloadView } from '@/router'
-import { prefetchStockDetail, cancelOtherPrefetches } from '@/utils/detailPrefetch'
+import { prefetchStockDetail, cancelOtherPrefetches, claimStockPrefetch } from '@/utils/detailPrefetch'
 import { observeStockRow, unobserveStockRow } from '@/utils/viewportPrefetch'
 import type { StockItem } from '@/api/types'
 import { changeClass, fmtPercent, fmtPrice } from '@/utils/format'
@@ -34,7 +34,12 @@ const cls = computed(() => changeClass(props.stock.changePercent))
  * seedTs 用于详情页判定新鲜度（刷新恢复的 history.state 可能很旧）。
  */
 function open() {
-  // 真实点击发生：取消除了这只股票之外、还在飞行中的预取请求，让出带宽
+  // 真实点击发生：立即认领这只股票的预取 entry，保证它不会被后续任何
+  // "离开视口"信号撤回（哪怕是 Tab 页 keep-alive 停用时浏览器误判的
+  // "假离开"，见 detailPrefetch.ts 的 claimStockPrefetch 注释）——这一步
+  // 必须放在 router.push 之前，抢在路由异步解析/组件懒加载完成之前生效。
+  claimStockPrefetch(props.stock.code)
+  // 取消除了这只股票之外、还在飞行中的预取请求，让出带宽（仅弱网触发）
   cancelOtherPrefetches(props.stock.code)
   router.push({
     path: `/stock/${props.stock.code}`,
