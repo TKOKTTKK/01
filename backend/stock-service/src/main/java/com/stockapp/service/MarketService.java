@@ -51,6 +51,20 @@ public class MarketService {
                 () -> provider.getIntraday(code));
     }
 
+    /**
+     * 批量取分时：详情页批量首屏聚合（视口预取打包多只股票，见
+     * StockService#detailBootstrapBatch）专用，内部一次 MGET + 未命中并行
+     * 回源，跟 {@link #getQuotes} 是同一套批量 cache-aside，避免调用方
+     * 循环调 getIntraday 退化成 N 次串行 Redis 往返。
+     */
+    public Map<String, IntradayVO> getIntradayBatch(List<String> codes) {
+        if (codes.isEmpty()) {
+            return Map.of();
+        }
+        return cache.getOrLoadBatch(codes, RedisKeys::intraday, RedisKeys.INTRADAY_TTL,
+                new TypeReference<IntradayVO>() {}, provider::getIntraday);
+    }
+
     public List<MarketIndexVO> getMarketIndex() {
         return cache.getOrLoad(RedisKeys.MARKET_INDEX, RedisKeys.MARKET_INDEX_TTL,
                 new TypeReference<List<MarketIndexVO>>() {},

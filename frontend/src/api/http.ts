@@ -89,9 +89,18 @@ export async function request<T>(config: {
  * 页面数据加载、真实点击后的请求，继续走上面的 request()，不要用这个——
  * 优先级这件事本身就是相对的，如果所有请求都标 low，等于都没标。
  */
-export async function requestLowPriority<T>(config: {
+/**
+ * requestLowPriority 的通用实现，抽出来是因为批量详情预取
+ * （getDetailBootstrapBatch）需要一个 POST + JSON body 的版本——
+ * 视口预取打包多只股票走 body 传 codes 数组，不再是 GET + query 能表达的了。
+ * method/序列化方式之外，鉴权头、priority: low、错误处理三部分逻辑
+ * 跟原来完全一致，不重复一遍。
+ */
+async function fetchLowPriority<T>(config: {
   url: string
+  method: 'GET' | 'POST'
   params?: Record<string, unknown>
+  data?: unknown
   signal?: AbortSignal
 }): Promise<T> {
   const store = useUserStore()
@@ -101,11 +110,16 @@ export async function requestLowPriority<T>(config: {
     ? `?${new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString()}`
     : ''
 
+  const headers: Record<string, string> = {}
+  if (store.token) headers.Authorization = `Bearer ${store.token}`
+  if (config.method === 'POST') headers['Content-Type'] = 'application/json'
+
   let resp: Response
   try {
     resp = await fetch(`${base}${config.url}${qs}`, {
-      method: 'GET',
-      headers: store.token ? { Authorization: `Bearer ${store.token}` } : undefined,
+      method: config.method,
+      headers,
+      body: config.method === 'POST' ? JSON.stringify(config.data ?? {}) : undefined,
       signal: config.signal,
       // priority 是 Fetch Priority API 的字段，标准 lib.dom.d.ts 版本不一定收录，
       // 用类型断言而不是依赖 TS 版本，避免因为编译环境差异导致类型报错
@@ -127,6 +141,23 @@ export async function requestLowPriority<T>(config: {
     router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
   }
   throw new Error(body.message || '请求失败')
+}
+
+export function requestLowPriority<T>(config: {
+  url: string
+  params?: Record<string, unknown>
+  signal?: AbortSignal
+}): Promise<T> {
+  return fetchLowPriority<T>({ ...config, method: 'GET' })
+}
+
+/** requestLowPriority 的 POST 版本：批量详情预取用 body 传 codes 数组 */
+export function requestLowPriorityPost<T>(config: {
+  url: string
+  data?: unknown
+  signal?: AbortSignal
+}): Promise<T> {
+  return fetchLowPriority<T>({ ...config, method: 'POST' })
 }
 
 export default http

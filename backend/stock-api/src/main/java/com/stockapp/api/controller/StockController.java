@@ -2,6 +2,7 @@ package com.stockapp.api.controller;
 
 import com.stockapp.common.result.ErrorCode;
 import com.stockapp.common.exception.BizException;
+import com.stockapp.common.dto.DetailBootstrapBatchRequest;
 import com.stockapp.common.result.Result;
 import com.stockapp.common.vo.DetailBootstrapVO;
 import com.stockapp.common.vo.IndicatorVO;
@@ -16,15 +17,19 @@ import com.stockapp.service.KlineService;
 import com.stockapp.service.MarketService;
 import com.stockapp.service.NewsService;
 import com.stockapp.service.StockService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/stocks")
@@ -99,6 +104,24 @@ public class StockController {
                 .quote(quote)
                 .intraday(intraday)
                 .build());
+    }
+
+    /**
+     * 批量版详情页首屏聚合：POST /api/stocks/detail-bootstrap/batch
+     * body: { "codes": ["600519", "000001", ...] }。供前端视口预取把同一屏
+     * 内新进入视口的多只股票打包成一次请求（见前端 viewportPrefetch.ts），
+     * 不再逐只单独调用上面的 {@link #detailBootstrap}。
+     *
+     * 用 POST + body 而不是像 {@link #quotesBatch} 那样 GET + 逗号分隔
+     * query——这里的批量条数上限只有 13，量级不大，换成 POST body 更符合
+     * "带参数的聚合查询"语义，也省去 URL 长度/转义的顾虑；codes 数量上限
+     * 由 {@link DetailBootstrapBatchRequest} 上的 @Size 校验，超限直接
+     * 400（PARAM_ERROR），不会静默截断。
+     */
+    @PostMapping("/detail-bootstrap/batch")
+    public Result<Map<String, DetailBootstrapVO>> detailBootstrapBatch(
+            @RequestBody @Valid DetailBootstrapBatchRequest req) {
+        return Result.success(stockService.detailBootstrapBatch(req.getCodes()));
     }
 
     /** 实时行情 */

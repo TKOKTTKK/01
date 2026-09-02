@@ -6,6 +6,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.stockapp.common.constant.RedisKeys;
 import com.stockapp.common.exception.BizException;
 import com.stockapp.common.result.ErrorCode;
+import com.stockapp.common.vo.DetailBootstrapVO;
+import com.stockapp.common.vo.IntradayVO;
 import com.stockapp.common.vo.PageResult;
 import com.stockapp.common.vo.QuoteVO;
 import com.stockapp.common.vo.StockVO;
@@ -14,6 +16,8 @@ import com.stockapp.dao.mapper.StockMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -152,6 +156,58 @@ public class StockService {
         // 按传入顺序返回，跳过库里查不到的 code（比如已下架），不报错——
         // 轮询场景下，某几只股票这一轮没取到，不该影响其余股票正常更新
         return distinct.stream().map(quotes::get).filter(java.util.Objects::nonNull).toList();
+    }
+
+    /**
+     * 批量详情页首屏聚合：POST /api/stocks/detail-bootstrap/batch 的实现，
+     * 供前端视口预取把同一屏内新进入视口的多只股票打包成一次请求（见前端
+     * viewportPrefetch.ts），替代原来"进入视口的每只股票各发一次
+     * detail-bootstrap"的做法。
+     *
+     * 上限 13 跟前端视口预取 LRU 队列容量对齐（该队列本来就不会攒出更多待
+     * 发起的 code），这里的 limit 是给接口自身的防御，不依赖调用方守规矩。
+     *
+     * 内部分别走 stock / quote / intraday 各自已有的批量 cache-aside（一次
+     * MGET + 未命中并行回源），而不是循环调用单只版本退化成 3×N 次
+     * Redis/DB 往返。查无此股票的 code 直接从结果里跳过、不报错——前端
+     * 按 code 取不到时会各自降级为单独请求重试（见 detailPrefetch.ts），
+     * 不该因为批次里一只股票不存在就让整批失败。
+     */
+    private static final int MAX_BOOTSTRAP_BATCH_CODES = 13;
+
+    public Map<String, DetailBootstrapVO> detailBootstrapBatch(List<String> codes) {
+        List<String> distinct = codes.stream().distinct().limit(MAX_BOOTSTRAP_BATCH_CODES).toList();
+        if (distinct.isEmpty()) {
+            return Map.of();
+        }
+        List<Stock> stocks = stockMapper.selectList(
+                new LambdaQueryWrapper<Stock>().in(Stock::getCode, distinct));
+        if (stocks.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> nameByCode = stocks.stream()
+                .collect(Collectors.toMap(Stock::getCode, Stock::getName, (a, b) -> a));
+        List<String> foundCodes = new ArrayList<>(nameByCode.keySet());
+        Map<String, QuoteVO> quotes = marketService.getQuotes(nameByCode);
+        Map<String, IntradayVO> intradays = marketService.getIntradayBatch(foundCodes);
+
+        Map<String, DetailBootstrapVO> result = new LinkedHashMap<>();
+        for (Stock s : stocks) {
+            QuoteVO q = quotes.get(s.getCode());
+            if (q == null) {
+                q = marketService.getQuote(s.getCode(), s.getName()); // 批量回源极少数单只失败时兜底
+            }
+            IntradayVO intraday = intradays.get(s.getCode());
+            if (intraday == null) {
+                intraday = marketService.getIntraday(s.getCode());
+            }
+            result.put(s.getCode(), DetailBootstrapVO.builder()
+                    .stock(toVO(s, q))
+                    .quote(q)
+                    .intraday(intraday)
+                    .build());
+        }
+        return result;
     }
 
     /**

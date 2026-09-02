@@ -48,7 +48,7 @@ function onTouch() {
   prefetchStockDetail(props.stock.code, { deep: true })
 }
 
-// 停下来即取：滚动停下后对当前可见的行预取 detail-bootstrap（预算与节流见 viewportPrefetch）
+// 进入即取：一进视口就加入 LRU 追踪队列，同一屏内打包成一次批量请求（细节见 viewportPrefetch）
 onMounted(() => {
   if (rowEl.value) observeStockRow(rowEl.value, () => props.stock.code)
 })

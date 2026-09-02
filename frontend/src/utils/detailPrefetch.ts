@@ -1,7 +1,7 @@
 import {
-  getDetailBootstrap, getIntraday, getQuote, getStock
+  getDetailBootstrap, getDetailBootstrapBatch, getIntraday, getQuote, getStock
 } from '@/api'
-import type { Indicators, Intraday, KlineItem, Quote, StockItem } from '@/api/types'
+import type { DetailBootstrap, Indicators, Intraday, KlineItem, Quote, StockItem } from '@/api/types'
 import { writeIntradayDiskCache, writeQuoteDiskCache } from './chartDiskCache'
 import { fetchKlineIncremental } from './klineIncremental'
 import { shouldSkipPreload } from './preload'
@@ -92,13 +92,17 @@ function swallow<T>(p: Promise<T>): Promise<T> {
 }
 
 /**
- * lowPriority 是显式传入而不是本函数自己决定的——makeEntry 有两个调用方，
- * 优先级含义完全相反：prefetchStockDetail（投机性预取）该标 low；
- * getPrefetchedOrFetch 命中缓存落空、现场发起的那次（用户此刻正在等的
- * 真实数据）绝不能标 low，否则"没预取过就点开"反而比"预取过再点开"慢。
+ * lowPriority 是显式传入而不是本函数自己决定的——buildEntry 的调用方
+ * 优先级含义完全相反：prefetchStockDetail/prefetchStockDetailBatch（投机性
+ * 预取）该标 low；getPrefetchedOrFetch 命中缓存落空、现场发起的那次
+ * （用户此刻正在等的真实数据）绝不能标 low，否则"没预取过就点开"反而比
+ * "预取过再点开"慢。
+ *
+ * boot 由调用方传入而不是这里现发请求——单只预取（makeEntry）和批量预取
+ * （makeBatchEntry）唯一的区别就是这个 Promise 的来源（单只 bootstrap 接口
+ * v.s. 从一次批量响应里取自己那一份），拆分/降级/落盘这些后续逻辑完全共用。
  */
-function makeEntry(code: string, lowPriority: boolean): Entry {
-  const controller = new AbortController()
+function buildEntry(code: string, boot: Promise<DetailBootstrap>, controller: AbortController, lowPriority: boolean): Entry {
   const { signal } = controller
   // 聚合接口失败时降级为三次独立请求；memo 化保证三个字段共享同一组降级请求
   let legacy: { stock: Promise<StockItem>; quote: Promise<Quote>; intraday: Promise<Intraday> } | null = null
@@ -112,7 +116,6 @@ function makeEntry(code: string, lowPriority: boolean): Entry {
     }
     return legacy
   }
-  const boot = getDetailBootstrap(code, signal, lowPriority)
   boot.catch(() => { /* 由下方各字段的 catch 分支处理 */ })
 
   const intraday = boot.then(b => b.intraday).catch(() => ensureLegacy().intraday)
@@ -132,6 +135,32 @@ function makeEntry(code: string, lowPriority: boolean): Entry {
   }
 }
 
+function makeEntry(code: string, lowPriority: boolean): Entry {
+  const controller = new AbortController()
+  const boot = getDetailBootstrap(code, controller.signal, lowPriority)
+  return buildEntry(code, boot, controller, lowPriority)
+}
+
+/**
+ * batchPromise 是"一次批量请求"的共享 Promise，多个 code 会 .then() 同一个
+ * 对象——每只股票各自拆出属于自己的那一份，取不到（后端跳过了这个 code）
+ * 时正常走 ensureLegacy 单独降级重试，不影响批次里其它股票。
+ *
+ * 注意 controller 是每只股票各自独立的一个，不是批量请求本身用的那个——
+ * 批量请求的网络调用只在 prefetchStockDetailBatch 里发生一次，不挂在任何
+ * 单只股票的 controller 上；这里的 controller 只用来控制这只股票自己的
+ * 降级请求 / deep 预取（K线），保证"淘汰/取消某一只股票的预取"不会连带
+ * 影响批次里其它股票仍在等待的同一个批量响应。
+ */
+function makeBatchEntry(code: string, batchPromise: Promise<Record<string, DetailBootstrap>>, controller: AbortController): Entry {
+  const boot = batchPromise.then(m => {
+    const b = m[code]
+    if (!b) throw new Error(`批量结果缺少 ${code}`)
+    return b
+  })
+  return buildEntry(code, boot, controller, true) // 批量预取统一低优先级
+}
+
 function fresh(code: string): Entry | null {
   const hit = cache.get(code)
   return hit && Date.now() - hit.time < TTL_MS ? hit : null
@@ -149,11 +178,11 @@ function deepen(entry: Entry, code: string): void {
 }
 
 /**
- * 预取入口。
- * - 可见即取（IntersectionObserver）：prefetchStockDetail(code) —— 只取 bootstrap
+ * 单只预取入口。
  * - 即将点击（touchstart/mouseenter）：prefetchStockDetail(code, { deep: true })
  *   —— 追加日K + 指标，覆盖"用户是冲着看K线来的"场景
- * 两种时机写同一个 cache，TTL 判重，不会重复发起。
+ * 进入视口这一档改走下面的 prefetchStockDetailBatch（见 viewportPrefetch.ts），
+ * 不再逐只调用这个函数；两者写的是同一个 cache，TTL 判重，不会重复发起。
  */
 export function prefetchStockDetail(code: string, opts?: { deep?: boolean }): void {
   let entry = fresh(code)
@@ -162,6 +191,33 @@ export function prefetchStockDetail(code: string, opts?: { deep?: boolean }): vo
     cache.set(code, entry)
   }
   if (opts?.deep) deepen(entry, code)
+}
+
+/**
+ * 批量预取入口：viewportPrefetch.ts 把同一个合并窗口内新进入视口的多只
+ * 股票（最多 13 个）一次性传进来，这里只发一次网络请求，回来后按 code
+ * 拆分成各自独立的 Entry 写入同一份 cache，详情页读取路径
+ * （getPrefetchedOrFetch）无感知，跟单只预取写进去的 Entry 没有区别。
+ *
+ * 只按 fresh(code) 过滤——语义跟 prefetchStockDetail 一致，已经有新鲜
+ * （TTL 内）数据的股票不重复占用这次批量请求的名额。是否需要发起这次调用
+ * 的去重（60 秒内是否已经尝试过）由调用方（viewportPrefetch 的 attempted
+ * 表）负责，这里不重复判断。
+ */
+export function prefetchStockDetailBatch(codes: string[]): void {
+  const need = codes.filter(code => !fresh(code))
+  if (need.length === 0) return
+  // 批量请求本身的网络调用不挂在任何单只股票的 controller 上（见
+  // makeBatchEntry 的注释）——弱网下"取消其它预取"仍会把某只股票的 entry
+  // 从 cache 里摘掉、不再等待它的结果，但这次批量请求已经发出，会自然完成，
+  // 不做局部中止：批量本身已经比 N 个单独请求省了大量开销，为了单只股票的
+  // 取消去拆分/中止整批得不偿失。
+  const batchController = new AbortController()
+  const batchPromise = swallow(getDetailBootstrapBatch(need, batchController.signal))
+  for (const code of need) {
+    const entryController = new AbortController()
+    cache.set(code, makeBatchEntry(code, batchPromise, entryController))
+  }
 }
 
 /** 详情页读取：命中新鲜预取就直接复用，否则现场发起请求（真实需要，不投机，走正常优先级） */
@@ -197,29 +253,4 @@ export function cancelOtherPrefetches(exceptCode: string): void {
     cache.delete(code)
     for (const fn of cancelListeners) fn(code)
   }
-}
-
-/**
- * 可视区滑出时调用（viewportPrefetch.ts）：如果这只股票还有预取请求在飞，
- * 直接取消——"带宽永远只留给可视范围内的股票"这条规则的落地实现。
- *
- * 跟上面 cancelOtherPrefetches 的两个关键差异：
- * 1. 不判断网络好坏，无条件执行——那边"好网络不取消"是因为"真实点击"
- *    跟"其他预取"本来就可以良性并发，没必要取消；这里不一样：滑出视口的
- *    股票已经不再有"马上会被看到"的价值，不管网络好不好，继续花带宽在
- *    看不见的股票上都是纯浪费，没有值得权衡的另一面。
- * 2. 目标是"这一只"，不是"除了某一只之外的全部"——每一行滑出视口都会
- *    单独调用一次，触发时机由 IntersectionObserver 的可见性变化决定，
- *    跟滚动速度、点击与否都无关。
- *
- * 同样会通知 viewportPrefetch 的去重表清掉这只股票的记录（见
- * cancelListeners）——不这样做的话，被取消的股票在 60 秒内划回来也不会
- * 重新触发预取，用户体验上会显得"划回去怎么还是没加载"。
- */
-export function abortPrefetchIfPending(code: string): void {
-  const entry = cache.get(code)
-  if (!entry) return
-  entry.controller.abort()
-  cache.delete(code)
-  for (const fn of cancelListeners) fn(code)
 }

@@ -1,93 +1,80 @@
-import { abortPrefetchIfPending, onPrefetchCancelled, prefetchStockDetail } from './detailPrefetch'
-import { onIdle, shouldSkipPreload } from './preload'
+import { onPrefetchCancelled, prefetchStockDetailBatch } from './detailPrefetch'
+import { shouldSkipPreload } from './preload'
 
 /**
- * "慢下来即取，划出即停"：持续跟踪哪些列表行当前在视口内；滚动速度慢
- * 下来（不需要等到完全静止）就对那一刻可见的行发起预取；一旦某一行
- * 滑出视口，如果它的预取请求还没回来，立刻取消——带宽永远只留给
- * 当前可视范围内的股票。
+ * "进入视口即取"：股票行一进入视口（threshold 0.3）就立即把它加入一个
+ * 有容量上限的 LRU 追踪队列，同一个短合并窗口内新加入队列的股票会被
+ * 打包成一次批量请求发出，不逐只单独发起、也不等滚动停下来。
  *
- * 【v3.7：从"停下来"改成"慢下来"】早期版本要等 SCROLL_IDLE_MS(300ms)内
- * 完全没有新的滚动事件才触发，本质是"等滚动彻底静止"。这次改成持续
- * 跟踪滚动速度：一旦速度降到 SLOW_VELOCITY 阈值以下（用户正在减速，
- * 即将停下但还没完全停），用更短的 FAST_CHECK_MS 去触发预取，不用再
- * 傻等到完全静止那一刻——手指离屏后的惯性滚动（momentum scrolling）
- * 天然会经历"从快到慢"这个过程，新逻辑能在这个过程后段就提前反应，
- * 比等它完全停下来更快命中。如果滚动一直很快（用户还在使劲划），
- * 依然退化成 SCROLL_IDLE_MS 的"没有新事件就当作停了"这条安全网，
- * 不会因为一直没有出现过"慢速采样点"而永远等不到触发。
+ * 【v4.0 从"停下来即取"改成"进入即取"】早期版本（见 git 历史）是滚动停止
+ * 300ms 后才对那一刻可见的行发起预取，理由是"一进视口就取"在快速划屏时
+ * 会把预取配额和带宽花在中途路过的行上。现在改用"LRU 队列 + 容量上限"
+ * 来对冲同一个问题：即使划得很快，队列容量只有 MAX_TRACKED(13)，路过的
+ * 行会持续把更早进入的行挤出队列——真正"划过去"而不是"正在看"的股票，
+ * 大概率还没等到合并窗口触发发请求，就已经被后面进入的行挤出了追踪范围
+ * （见 track() 里"入队才会 pending，挤出队列不追加 pending"的逻辑）。
+ * 换句话说，节流点从"时间维度（idle 300ms）"换成了"数量维度（队列容量）"，
+ * 但都是为了不把预取浪费在用户"划过去"的行上，且响应更即时——用户在
+ * 一行上稍作停留（哪怕没到"停止滚动"的程度），这一行就已经在请求路上了。
  *
- * 【v3.7：新增"划出即停"】原来一行的预取请求一旦发出就不会因为它划出
- * 视口而取消（除非真实点击触发的弱网清场）。现在只要 IntersectionObserver
- * 报告某一行不再可见，无条件、立刻取消它的预取（如果还有的话）——不像
- * 真实点击那条路径只在弱网时才取消，这里没有"好网络就放过"这一说：
- * 已经看不见的股票不管网络好坏都不再有"即将被点开"的价值，继续花
- * 带宽在它身上纯粹是浪费，永远优先满足当前可视范围内的股票。
+ * 【队列容量 13 的含义】不是"一屏最多显示多少行"（那个由 visible 集合和
+ * 屏幕高度自然决定，没有硬上限），是"当前需要保持新鲜预取数据的股票数"
+ * 上限，同时也是单次批量请求打包的 code 数上限（后端 /detail-bootstrap/batch
+ * 有同样的校验，见 DetailBootstrapBatchRequest）。正常一屏可见行数
+ * （8~12 行）小于 13，淘汰基本只在超大屏/异常场景触发，属于防御性上限。
  *
- * 【为什么不是"一进入视口就预取"】早期版本是行一进视口就立刻安排一次
- * 预取。问题是快速下滑浏览时，中途路过的每一行都会触发安排，很容易
- * 在用户真正停下来、准备点击的那一行到达之前，就把预取配额和带宽花
- * 在了路过的几行上——预取的还是用户"划过去"而不是"正在看"的股票。
- * 现在把"记录可见状态"和"发起预取"拆成两步，只有滚动慢下来那一刻，
- * 才对当前可见的行发起预取，命中率明显更高，也是"划出即停"能生效的前提
- * ——如果一进视口就发，那一刻还谈不上"是不是即将划出"，无从谈起取消。
+ * 【淘汰不等于取消网络请求】队列满时挤出最早进入的 code，只是"不再关心
+ * 它的结果、清空去重标记以便重新进入时可以再次预取"，不会 abort 已经
+ * 发出的批量请求——好网络下这本来就是纯浪费（后端已经在算了，数据也会
+ * 正常落到 cache/磁盘），跟 detailPrefetch.ts 里"好网络不取消预取"是
+ * 同一个哲学。真正的弱网取消仍然只由 cancelOtherPrefetches 负责，
+ * 那是另一套机制（真实点击时才触发），不和这里的队列淘汰混在一起。
  *
- * 【v3.8：用户主动停下来也要立刻触发】前面"慢下来"那条是被动检测——
- * 靠滚动事件的速度变化推断用户是不是在减速。但用户经常是主动伸手按住
- * 屏幕把列表停下来（不是等惯性自然衰减），这种情况下瞬时速度未必低于
- * SLOW_VELOCITY 阈值，只能吃 SCROLL_IDLE_MS 那条兜底，等 300ms 才触发，
- * 不够"立刻"。所以额外监听 touchstart/mousedown：手指按下/鼠标按下本身
- * 就是"我要停在这里"的主动信号，不用再靠速度判断，直接立刻触发一次。
- * 即使这次触摸最终变成了新的一次滑动手势（不是真的要停），也没有代价——
- * `attempted` 去重表挡住短时间重复请求，多触发一次最多是提前判断了一次，
- * 不会重复发请求；如果紧接着确实划走了，"划出即停"会照常取消。
+ * 【合并窗口】"进入即取"和"打包成一个请求"本身有一点张力——真的逐个
+ * 立即发，就没法打包了。这里用一个很短（MERGE_WINDOW_MS）的合并窗口，
+ * 收集窗口内新进入队列、且确实需要发请求的 code，窗口结束时一次性打包
+ * 调用批量接口。窗口本身不重新调度（同一批未落地的 code 只会等同一个
+ * 定时器），保证一屏内连续进入视口的多行大概率落进同一次批量请求。
  *
- * 【流量控制，现状】
- * 1. 每次触发最多处理 MAX_PER_STOP(20) 行——正常手机一屏 8~12 行，
- *    这个上限只是防止极端情况（超大屏/超小行高）一次性发太多请求，
- *    不是拿来跨屏幕限流的；
- * 2. 每个 code 60 秒内最多尝试一次（ATTEMPT_TTL），这是为了不对同一只
- *    股票在短时间内重复发请求，跟"这一屏能不能被覆盖"是两件事；
- * 3. 触发后仍推迟到浏览器空闲（onIdle）再真正发请求，不与滚动收尾的
- *    渲染/绘制抢主线程；一屏内的请求会在同一个空闲时间片里一起发出；
- * 4. 真实点击发生时，仅在弱网/省流量场景下才取消同一屏内其他还在飞行中的
- *    预取请求（见 detailPrefetch.ts 的 cancelOtherPrefetches）；行滑出
- *    视口则无条件取消（见上面的 abortPrefetchIfPending），两者是不同的
- *    取舍——前者两只股票都还在屏幕上，后者已经确定看不见了；
- * 5. 省流量模式 / 2G 网络整体跳过（与路由预载同一判定）。
+ * 【去重】60 秒内尝试过的 code 不重复发起（attempted 表），这是为了不对
+ * 同一只股票短时间内重复发请求；跟"队列淘汰"是两件独立的事——正常划出
+ * 视口（未被挤出，只是自然不在视口内）不清这个标记，划回来如果还在
+ * 60 秒内不会重新触发；被挤出队列的则立即清掉标记，重新进入视口视为
+ * "没预取过"，允许立即再发（对应用户诉求"淘汰出视口外的重新进入视口
+ * 没数据也要发请求"）。
+ *
+ * 【省流量场景】省流量模式 / 2G 网络整体跳过（与路由预载同一判定）。
  *
  * 【实现位置说明】统一收敛到 StockRow 组件（每行观察自己 + 模块级共享
- * observer/滚动监听），一份代码即可覆盖 Home/Market/Watchlist/Search
- * 全部列表视图，也天然兼容 VirtualStockList 的虚拟滚动
- * （窗口外的行本来就没挂载，不会被误判为"可见"）。
+ * observer），一份代码即可覆盖 Home/Market/Watchlist/Search 全部列表
+ * 视图，也天然兼容 VirtualStockList 的虚拟滚动（窗口外的行本来就没
+ * 挂载，不会被误判为"可见"）。
  */
 
 const ATTEMPT_TTL = 60_000
-/** 这一次触发最多处理多少行——防极端情况的软上限，不是跨屏幕的累计配额 */
-const MAX_PER_STOP = 20
-/** 滚动速度低于这个值（像素/毫秒）视为"慢下来了"，可以提前触发 */
-const SLOW_VELOCITY = 0.3
-/** 检测到"慢下来"之后的短防抖——不用等完全静止，但也不是慢一点就立刻发 */
-const FAST_CHECK_MS = 100
-/** 还在快速滚动时的兜底防抖：这段时间内没有新的滚动事件，也当作"停了" */
-const SCROLL_IDLE_MS = 300
+/** LRU 追踪队列容量：同时保持新鲜预取数据的股票数上限，也是单次批量请求
+ *  打包的 code 数上限，跟后端 DetailBootstrapBatchRequest 的 @Size 对齐 */
+const MAX_TRACKED = 13
+/** 合并窗口：进入视口后最多等这么久，把窗口内陆续进入的股票收进同一次批量请求 */
+const MERGE_WINDOW_MS = 50
 
-/** code -> 上次尝试时间，用于避免短时间内重复预取同一只股票 */
+/** code -> 上次尝试时间，用于避免短时间内重复预取同一只股票（正常离开视口不清） */
 const attempted = new Map<string, number>()
-// detailPrefetch 取消某只股票的预取时（弱网清场 / 划出视口），这里的
-// 去重记录得跟着清掉，否则用户之后划回来看这只股票，会被这张表当成
-// "刚试过"直接跳过，白白晾到 60 秒自然过期才能重新预取
+// v3.4 修复：detailPrefetch 弱网下取消某只股票的预取时，这里的去重记录
+// 得跟着清掉，否则用户之后划回来看这只股票，会被这张表当成"刚试过"
+// 直接跳过，白白晾到 60 秒自然过期才能重新预取
 onPrefetchCancelled((code) => attempted.delete(code))
 /** 观察元素 -> 取当前 code 的函数（行组件复用时 props 会变，用 getter 取最新值） */
 const codeGetters = new WeakMap<Element, () => string>()
-/** 当前处于视口内的元素（持续维护，不代表已发起预取） */
+/** 当前处于视口内的元素（持续维护，供 getVisibleCodes 查询，无容量上限） */
 const visible = new Set<Element>()
+/** LRU 追踪队列：code -> 进入队列的时间，Map 保留插入顺序，最早的 key 就是最久没刷新的 */
+const tracked = new Map<string, number>()
+/** 当前合并窗口内、确认需要发请求的 code 集合 */
+let pending = new Set<string>()
+let mergeTimer: number | undefined
 
 let observer: IntersectionObserver | null = null
-let scrollTimer: number | undefined
-let scrollBound = false
-let lastScrollY = 0
-let lastScrollT = 0
 
 function prune(now: number): void {
   for (const [code, t] of attempted) {
@@ -95,70 +82,52 @@ function prune(now: number): void {
   }
 }
 
-/** 触发时刻：对当前可见的行按从上到下的视觉顺序、一次性并发发起预取 */
-function prefetchVisibleNow(): void {
-  if (shouldSkipPreload()) return
-  const now = Date.now()
-  prune(now)
-
-  // 按屏幕上的实际位置从上到下排序，而不是按进入视口的时间顺序，
-  // 保证同一屏内超过 MAX_PER_STOP 时，优先覆盖的顺序跟视觉顺序一致
-  const ordered = [...visible].sort((a, b) => {
-    const ta = a.getBoundingClientRect().top
-    const tb = b.getBoundingClientRect().top
-    return ta - tb
-  })
-
-  let scheduled = 0
-  for (const el of ordered) {
-    if (scheduled >= MAX_PER_STOP) break
-    const getCode = codeGetters.get(el)
-    if (!getCode) continue
-    const code = getCode()
-    if (attempted.has(code)) continue
-    attempted.set(code, now)
-    // 已经判定"慢下来/停了"，onIdle 的超时只是让滚动收尾的渲染先走完；
-    // 不再额外错峰，这一屏合格的行会在同一个空闲时间片里一次性并发发出
-    onIdle(() => prefetchStockDetail(code), 300)
-    scheduled++
+/** 队列超过容量时，挤掉最早进入的那个：只摘出队列、清去重标记，不 abort 已发出的请求 */
+function evictIfNeeded(): void {
+  while (tracked.size > MAX_TRACKED) {
+    const oldest = tracked.keys().next().value
+    if (oldest === undefined) break
+    tracked.delete(oldest)
+    attempted.delete(oldest)
+    pending.delete(oldest)
   }
 }
 
-/**
- * 每次滚动事件都会算一次瞬时速度，据此决定这次要等多久再触发：
- * 已经慢下来 -> 短防抖，尽快反应；还很快 -> 长防抖，当作"没停"，
- * 等真的没有新事件进来一段时间才当作停了（兜底，避免一直判断"很快"
- * 导致永远不触发）。
- */
-function onScroll(): void {
-  const now = performance.now()
-  const y = window.scrollY
-  const dt = now - lastScrollT
-  const dy = Math.abs(y - lastScrollY)
-  lastScrollY = y
-  lastScrollT = now
-
-  const velocity = dt > 0 ? dy / dt : 0
-  window.clearTimeout(scrollTimer)
-  const delay = velocity < SLOW_VELOCITY ? FAST_CHECK_MS : SCROLL_IDLE_MS
-  scrollTimer = window.setTimeout(prefetchVisibleNow, delay)
+function flushPending(): void {
+  mergeTimer = undefined
+  if (pending.size === 0) return
+  const codes = [...pending]
+  pending = new Set()
+  if (shouldSkipPreload()) return
+  const now = Date.now()
+  for (const code of codes) attempted.set(code, now)
+  prefetchStockDetailBatch(codes)
 }
 
-/** 用户主动按住/触屏：不用等速度判断，直接立刻触发一次（见上方 v3.8 说明） */
-function onUserStop(): void {
-  window.clearTimeout(scrollTimer)
-  prefetchVisibleNow()
+function scheduleFlush(): void {
+  if (mergeTimer !== undefined) return // 已经有一个窗口在等，新加入的 code 会搭上这一班
+  mergeTimer = window.setTimeout(flushPending, MERGE_WINDOW_MS)
 }
 
-function bindScrollListener(): void {
-  if (scrollBound) return
-  scrollBound = true
-  lastScrollY = window.scrollY
-  lastScrollT = performance.now()
-  // .page 没有自己的滚动容器，是整个文档在滚动，监听 window 即可覆盖全部列表页
-  window.addEventListener('scroll', onScroll, { passive: true })
-  window.addEventListener('touchstart', onUserStop, { passive: true })
-  window.addEventListener('mousedown', onUserStop, { passive: true })
+/** 一行进入视口：立即入队，若确实需要发请求（未去重命中）则加进当前合并窗口 */
+function track(code: string): void {
+  if (shouldSkipPreload()) return
+  const now = Date.now()
+  prune(now)
+  if (tracked.has(code)) return // 已在队列里，不重复入队/不重置顺序，避免抖动来回滑动反复刷新
+  tracked.set(code, now)
+  evictIfNeeded()
+  if (!tracked.has(code)) return // 极端场景：容量为 0 之类，理论不会发生，防御一下
+  if (!attempted.has(code)) {
+    pending.add(code)
+    scheduleFlush()
+  }
+}
+
+/** 一行离开视口（滚出屏幕，或组件卸载）：只摘出队列，不清去重标记——正常离开不代表可以立即重新预取 */
+function untrack(code: string): void {
+  tracked.delete(code)
+  pending.delete(code)
 }
 
 function ensureObserver(): IntersectionObserver | null {
@@ -166,44 +135,49 @@ function ensureObserver(): IntersectionObserver | null {
   if (typeof IntersectionObserver === 'undefined') return null
   observer = new IntersectionObserver((entries) => {
     for (const e of entries) {
+      const getCode = codeGetters.get(e.target)
       if (e.isIntersecting) {
         visible.add(e.target)
+        if (getCode) track(getCode())
       } else {
         visible.delete(e.target)
-        // 划出即停：不管这一刻是不是弱网，只要还有预取请求在飞就立刻取消
-        const getCode = codeGetters.get(e.target)
-        if (getCode) abortPrefetchIfPending(getCode())
+        if (getCode) untrack(getCode())
       }
     }
   }, { threshold: 0.3 })
   return observer
 }
 
-/** StockRow 挂载时调用；持续观察（不 unobserve），进出视口只更新可见集合 */
+/**
+ * StockRow 挂载时调用；持续观察（不 unobserve），进出视口只更新可见集合。
+ * IntersectionObserver 对新 observe() 的元素会立即触发一次初始回调
+ * （反映当前是否已经在视口内），所以首屏行（页面刚打开、还没发生滚动）
+ * 天然会走到 track()，不需要像旧版那样另外手动触发一次判定。
+ */
 export function observeStockRow(el: Element, getCode: () => string): void {
   const ob = ensureObserver()
   if (!ob) return
   codeGetters.set(el, getCode)
   ob.observe(el)
-  bindScrollListener()
-  // 页面刚打开、还没发生滚动时，首屏行也要有一次触发判定，
-  // 否则用户不滑动就直接点的场景反而享受不到预取
-  window.clearTimeout(scrollTimer)
-  scrollTimer = window.setTimeout(prefetchVisibleNow, SCROLL_IDLE_MS)
 }
 
-/** StockRow 卸载时调用 */
+/** StockRow 卸载时调用：视图切换/虚拟列表回收行时，同样要从队列里摘除，
+ *  否则这只股票会一直占着追踪队列的名额，直到被别的行挤出去 */
 export function unobserveStockRow(el: Element): void {
+  const getCode = codeGetters.get(el)
   observer?.unobserve(el)
   codeGetters.delete(el)
   visible.delete(el)
+  if (getCode) untrack(getCode())
 }
 
 /**
  * 供 visiblePricePolling.ts 查询"当前屏幕可见的股票代码有哪些"——复用
  * 同一个 IntersectionObserver 的可见集合，不再为轮询单独起一个 observer
  * （同一批 DOM 元素被两个 observer 各自观察一遍是纯浪费）。不保证顺序、
- * 不做去重之外的处理，调用方按需处理。
+ * 不做去重之外的处理，调用方按需处理。注意这是"当前可见"集合，跟上面的
+ * LRU 追踪队列（tracked）是两回事：可见集合没有容量上限，天然受屏幕
+ * 高度约束；追踪队列是"预取还要不要为它保留名额"的独立判断。
  */
 export function getVisibleCodes(): string[] {
   const codes: string[] = []

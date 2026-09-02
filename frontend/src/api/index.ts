@@ -1,4 +1,4 @@
-import { request, requestLowPriority } from './http'
+import { request, requestLowPriority, requestLowPriorityPost } from './http'
 import type {
   DetailBootstrap, Indicators, Intraday, KlineItem, MarketIndex,
   NewsItem, PageResult, Period, Quote, SimAccount, SimCashFlow, SimPosition,
@@ -49,6 +49,21 @@ export const getDetailBootstrap = (code: string, signal?: AbortSignal, lowPriori
   const cfg = { url: `/api/stocks/${code}/detail-bootstrap`, signal }
   return lowPriority ? requestLowPriority<DetailBootstrap>(cfg) : request<DetailBootstrap>(cfg)
 }
+
+/**
+ * 批量版详情页首屏聚合：视口预取专用（utils/viewportPrefetch.ts）——把同一屏
+ * 内新进入视口的多只股票打包成一次请求，替代逐只调用 getDetailBootstrap。
+ * 走 POST + body 传 codes（最多 13 个，跟前端 LRU 追踪队列容量对齐，
+ * 后端也有同样的上限校验），返回 code -> DetailBootstrap 的映射；后端可能
+ * 因个别 code 查无此股票而跳过，前端拿不到时按 code 各自降级为单独请求。
+ * 只在 lowPriority 场景使用（预取本质是投机请求），不提供正常优先级版本。
+ */
+export const getDetailBootstrapBatch = (codes: string[], signal?: AbortSignal) =>
+  requestLowPriorityPost<Record<string, DetailBootstrap>>({
+    url: '/api/stocks/detail-bootstrap/batch',
+    data: { codes },
+    signal
+  })
 
 /**
  * K线：传 limit 走全量/tail 语义；传 since（yyyy-MM-dd）则只返回该日期
