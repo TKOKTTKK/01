@@ -32,6 +32,16 @@ import { onIdle, shouldSkipPreload } from './preload'
  * 才对当前可见的行发起预取，命中率明显更高，也是"划出即停"能生效的前提
  * ——如果一进视口就发，那一刻还谈不上"是不是即将划出"，无从谈起取消。
  *
+ * 【v3.8：用户主动停下来也要立刻触发】前面"慢下来"那条是被动检测——
+ * 靠滚动事件的速度变化推断用户是不是在减速。但用户经常是主动伸手按住
+ * 屏幕把列表停下来（不是等惯性自然衰减），这种情况下瞬时速度未必低于
+ * SLOW_VELOCITY 阈值，只能吃 SCROLL_IDLE_MS 那条兜底，等 300ms 才触发，
+ * 不够"立刻"。所以额外监听 touchstart/mousedown：手指按下/鼠标按下本身
+ * 就是"我要停在这里"的主动信号，不用再靠速度判断，直接立刻触发一次。
+ * 即使这次触摸最终变成了新的一次滑动手势（不是真的要停），也没有代价——
+ * `attempted` 去重表挡住短时间重复请求，多触发一次最多是提前判断了一次，
+ * 不会重复发请求；如果紧接着确实划走了，"划出即停"会照常取消。
+ *
  * 【流量控制，现状】
  * 1. 每次触发最多处理 MAX_PER_STOP(20) 行——正常手机一屏 8~12 行，
  *    这个上限只是防止极端情况（超大屏/超小行高）一次性发太多请求，
@@ -134,6 +144,12 @@ function onScroll(): void {
   scrollTimer = window.setTimeout(prefetchVisibleNow, delay)
 }
 
+/** 用户主动按住/触屏：不用等速度判断，直接立刻触发一次（见上方 v3.8 说明） */
+function onUserStop(): void {
+  window.clearTimeout(scrollTimer)
+  prefetchVisibleNow()
+}
+
 function bindScrollListener(): void {
   if (scrollBound) return
   scrollBound = true
@@ -141,6 +157,8 @@ function bindScrollListener(): void {
   lastScrollT = performance.now()
   // .page 没有自己的滚动容器，是整个文档在滚动，监听 window 即可覆盖全部列表页
   window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('touchstart', onUserStop, { passive: true })
+  window.addEventListener('mousedown', onUserStop, { passive: true })
 }
 
 function ensureObserver(): IntersectionObserver | null {
