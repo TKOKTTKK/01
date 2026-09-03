@@ -14,16 +14,19 @@
 
     <template v-if="traffic">
       <div class="debug-section">
-        <div class="debug-h">流量统计（从这次打开 App 开始累计，刷新页面归零）</div>
+        <div class="debug-h">
+          流量统计（从这次打开 App 开始累计，刷新页面归零；
+          量的是响应体解压后的字节数，比 gzip 压缩后的真实网络流量偏大，
+          仅供参考数量级，不是精确网络流量）
+        </div>
         <div class="debug-hit">预取流量：{{ formatBytes(traffic.prefetchBytes) }}（{{ traffic.prefetchCount }} 个请求）</div>
         <div class="debug-hit">
           总流量：{{ formatBytes(traffic.totalBytes) }}（{{ traffic.totalCount }} 个请求）
           {{ traffic.totalBytes > 0 ? `· 预取占比 ${(traffic.prefetchBytes / traffic.totalBytes * 100).toFixed(1)}%` : '' }}
         </div>
         <div class="debug-miss" v-if="traffic.totalCount === 0">
-          还没有任何请求被记录到——如果这时候明明已经有网络活动，
-          可能是浏览器不支持 Resource Timing，或者请求发生在 App 打开之前
-          （理论上不应该，见 trafficStats.ts 头注释）
+          还没有任何请求被记录到——正常应该只要发过 API 请求就会有数字，
+          如果确实是 0，检查一下 http.ts 里 recordApiTraffic 那两行是不是被删掉了
         </div>
       </div>
     </template>
@@ -99,21 +102,23 @@
  * 2. 打开 frontend/src/views/SettingsView.vue，删掉里面标了
  *    "// 调试面板：验证完删掉本段和 DebugCachePanel.vue" 的那几处代码
  * 3. 删掉 frontend/src/utils/trafficStats.ts
- * 4. 打开 frontend/src/api/http.ts，删掉 fetchLowPriority 里给 URL 加
- *    `_pf=1` 标记参数的那一行（有注释标注，搜 "_pf=1"）；打开 main.ts，
- *    删掉最上面 `import './utils/trafficStats'` 那一行（连同上面那段
- *    "必须是第一个 import" 的注释）
+ * 4. 打开 frontend/src/api/http.ts，删掉 request() 和 fetchLowPriority()
+ *    里调用 recordApiTraffic(...) 的那两行（搜 "recordApiTraffic"）；
+ *    打开 main.ts，删掉最上面 `import './utils/trafficStats'` 那一行
  * 前两处不牵扯任何正式功能（原理见下）；第 3、4 处例外——流量统计要
- * 精确区分"预取流量"和"真实交互流量"，必须在 http.ts 里给预取请求的 URL
- * 打一个标记，这是唯一碰了生产代码的地方，删除时不能漏掉，否则会留下
- * 一个不会被任何东西读取、但一直在悄悄改 URL 的死代码。
+ * 精确区分"预取流量"和"真实交互流量"，必须在 http.ts 里主动上报，这是
+ * 唯一碰了生产代码的地方，删除时不能漏掉。
  *
  * 查缓存/同步状态部分：直接用原生 IndexedDB API 只读打开 chartDiskCache.ts
  * 建的那个库（stock_app_chart_cache），不 import、不改动 chartDiskCache.ts /
  * fullSync.ts 本身。
  * 查流量部分：读 utils/trafficStats.ts 暴露的 getTrafficStats()——这个
- * 文件本身是自包含的（自己内部用 PerformanceObserver 统计，不需要本面板
- * 也能独立工作），本面板只是读一下它的结果展示出来。
+ * 文件本身是自包含的（内部只是几个累加变量，不需要本面板也能独立工作），
+ * 本面板只是读一下它的结果展示出来。流量数字量的是"响应体解压后的字节
+ * 数"，不是压缩后的真实网络字节数，比真实流量偏大，详见 trafficStats.ts
+ * 头注释——之所以选这个口径，是因为一开始想用浏览器的 Resource Timing
+ * API（更精确），但这个项目前后端跨域部署，两轮验证都没能让那个方案在
+ * 手机端正常工作，改成了不依赖任何浏览器权限的直接测量。
  */
 import { ref } from 'vue'
 import { getTrafficStats, type TrafficStats } from '@/utils/trafficStats'
