@@ -21,6 +21,9 @@
 - 用户注册 / 登录（BCrypt + JWT）、统一 Result 返回、全局异常处理
 - Redis 缓存（行情 / 指数 / 热门，全部带 TTL）、行情同步定时任务
 - Docker Compose 一键启动
+- 行情 + 分时数据 Protobuf + Gzip 二进制接口（`/api/stocks/{code}/quote-intraday.pb`，
+  与原 JSON 接口并存），定点数 + 差值编码优化压缩率，详见
+  [`docs/PROTOBUF_GZIP_REFACTOR_NOTES.md`](docs/PROTOBUF_GZIP_REFACTOR_NOTES.md)
 
 ## 技术栈
 
