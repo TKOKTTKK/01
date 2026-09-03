@@ -5,6 +5,7 @@ import router from './router'
 import './styles/base.css'
 import { startIdlePreload } from './utils/preload'
 import { scheduleFullSync } from './utils/fullSync'
+import { scheduleQuoteIntradaySync } from './utils/quoteIntradaySync'
 import { startVisiblePricePolling } from './utils/visiblePricePolling'
 import { useUiStore } from './stores/ui'
 
@@ -39,6 +40,11 @@ startIdlePreload()
 // 详情见 utils/fullSync.ts。内部自己处理节流/断点续传/前台判断，这里
 // 只管触发一次。
 scheduleFullSync()
+
+// 全量后台静默同步：分时图 + 实时行情快照版本，调度骨架跟上面日K同步
+// 一样（网络空闲才推进），但交易时段内每 30 分钟重新扫一轮、非交易时段
+// 只扫一轮，详情见 utils/quoteIntradaySync.ts。
+scheduleQuoteIntradaySync()
 
 // 可视区高频价格轮询：只在交易时段、只更新屏幕上看得见的股票，
 // 详情见 utils/visiblePricePolling.ts。

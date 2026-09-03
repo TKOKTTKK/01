@@ -92,8 +92,15 @@ const db = new ChartDiskCacheDB()
 const TTL_MS = 24 * 60 * 60 * 1000
 /** 30 天没再写入/刷新过的记录，判定为过期数据，清理释放空间——见 pruneStaleGlobally() */
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
-/** 最多缓存这么多只股票的分时图，超过按最久没刷新的淘汰 */
-const MAX_INTRADAY = 100
+/**
+ * 最多缓存这么多只股票的分时图。上调到 600 是因为全量后台同步
+ * （quoteIntradaySync.ts）会把整个股票池（目前 500 只）的分时图都落到
+ * 这张表——500 条是全量同步的硬需求，另外预留约 100 条给股票池之外、
+ * 用户实际点开看过的记录（旧的 100 上限是在只有"点过的股票才有缓存"这个
+ * 前提下定的，全量同步把这个前提改变了，上限也得跟着调，逻辑跟下面
+ * MAX_KLINE 当初的调整一致）。
+ */
+const MAX_INTRADAY = 600
 /**
  * 最多缓存这么多条 K线记录。上调到 900 是因为全量后台同步（fullSync.ts）
  * 会把整个股票池（目前 500 只）的日K都落到这张表——500 条是全量同步的
@@ -102,8 +109,9 @@ const MAX_INTRADAY = 100
  * 把这个前提改变了，上限也得跟着调）。
  */
 const MAX_KLINE = 900
-/** 最多缓存这么多只股票的实时行情快照，超过按最久没刷新的淘汰 */
-const MAX_QUOTE = 100
+/** 最多缓存这么多只股票的实时行情快照，上调到 600 的理由跟 MAX_INTRADAY 一致——
+ *  全量同步（quoteIntradaySync.ts）会覆盖整个股票池 */
+const MAX_QUOTE = 600
 
 function todayStr(): string {
   const d = new Date()
@@ -144,6 +152,21 @@ export async function readIntradayDiskCache(code: string): Promise<Intraday | nu
     return rec.data
   } catch {
     return null // 隐私模式/浏览器限制导致 IndexedDB 不可用时静默降级
+  }
+}
+
+/**
+ * 只读分时图缓存的年龄，不做 24 小时 TTL 判断——用途和理由跟
+ * getQuoteCacheAgeMs 完全一样，供 quoteIntradaySync.ts 判断本轮要不要
+ * 跳过这只股票，见该函数的注释。
+ */
+export async function getIntradayCacheAgeMs(code: string): Promise<number | null> {
+  try {
+    const rec = await db.intraday.get(code)
+    if (!rec || rec.dateStr !== todayStr()) return null
+    return Date.now() - rec.ts
+  } catch {
+    return null
   }
 }
 
@@ -204,6 +227,26 @@ export async function readQuoteDiskCache(code: string): Promise<Quote | null> {
     if (Date.now() - rec.ts > TTL_MS) return null
     if (rec.dateStr !== todayStr()) return null
     return rec.data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 只读"这条行情缓存写入到现在过了多久"，不做 24 小时 TTL 判断——供
+ * quoteIntradaySync.ts 判断"这一轮要不要跳过这只股票"用：只要本地已经有
+ * 当天的数据、且写入时间比本轮同步间隔还新，就没必要再发一次请求，不管
+ * 这份数据究竟是全量同步自己上一轮写的，还是用户自己浏览详情页/划过
+ * 视口时（detailPrefetch.ts）顺手写的——来源不重要，新鲜就够。
+ * 跨自然日的缓存一律当作"没有"（返回 null），必须重新拉，理由跟
+ * readQuoteDiskCache 一致：今开/最高/最低是"今天"的统计口径。
+ * 不存在记录 / IndexedDB 不可用也返回 null。
+ */
+export async function getQuoteCacheAgeMs(code: string): Promise<number | null> {
+  try {
+    const rec = await db.quote.get(code)
+    if (!rec || rec.dateStr !== todayStr()) return null
+    return Date.now() - rec.ts
   } catch {
     return null
   }

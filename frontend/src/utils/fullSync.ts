@@ -2,6 +2,7 @@ import { getHotStocks, listStocks } from '@/api'
 import { fetchKlineIncremental } from './klineIncremental'
 import { getSyncMeta, pruneStaleGlobally, setSyncMeta } from './chartDiskCache'
 import { onIdle, shouldSkipPreload } from './preload'
+import { runPool } from './syncPool'
 import { useWatchlistStore } from '@/stores/watchlist'
 
 /**
@@ -14,11 +15,17 @@ import { useWatchlistStore } from '@/stores/watchlist'
  *   时机，覆盖的是 quote + intraday（会变的实时数据）+ 可选的日K深度预取，
  *   目标是"这一次交互能不能瞬时"，范围是"当前屏幕附近"。
  * - fullSync（本文件）：不看用户此刻在干什么，只看"整个股票池里，本地
- *   还缺哪些/哪些可能过期了"，覆盖范围是全部股票，但只同步日K+指标——
- *   全量预取的数据定位是"静态快照"，quote/intraday 这类高频变化的数据
- *   不在全量同步范围内，交易时段内可视区股票的实时价格由另一套轻量
- *   轮询负责（后续步骤），不靠全量重新拉一遍来更新价格。
- * 两者用同一个 IndexedDB kline 表，谁先写不冲突（都是按 code+period 覆盖）。
+ *   还缺哪些日K/指标"，覆盖范围是全部股票——全量预取的数据定位是"静态
+ *   快照"，一天更新一次足够。
+ * - quoteIntradaySync.ts：跟本文件同一套调度骨架（网络空闲才推进、优先级
+ *   排序、分批小并发、断点续传），但覆盖 quote+分时图——这两类数据交易
+ *   时段内会变，所以调度节奏跟日K不一样（交易时段每 30 分钟重新扫一轮
+ *   全池，非交易时段只扫一轮），细节见该文件头注释。交易时段内可视区
+ *   股票的高频跳价仍由 visiblePricePolling.ts 那套轻量轮询负责，全量同步
+ *   两者不冲突，quoteIntradaySync 覆盖的是"暂时不在视口里的股票也不能
+ *   完全没有较新数据"。
+ * 三者用同一个 IndexedDB 库（kline/quote/intraday 各自的表），谁先写不
+ * 冲突（都是按主键覆盖）。
  *
  * 【调度策略】
  * 1. 只在页面处于前台（visibilitychange）且非弱网（shouldSkipPreload）
@@ -86,8 +93,11 @@ function idleYield(timeout = YIELD_TIMEOUT): Promise<void> {
  * 生成本次全量同步的股票顺序：自选股 > 热门榜 > 其余全部（按后端分页顺序）。
  * 任何一档失败都静默跳过、不影响其他档——哪怕只有"其余全部"这一档成功，
  * 同步范围退化成全量但顺序没有优先级，也好过完全不跑。
+ *
+ * 导出给 quoteIntradaySync.ts（分时图+行情全量同步）复用——两边要覆盖的
+ * 都是"整个股票池"，排序逻辑没有理由各写一份。
  */
-async function buildPriorityList(): Promise<string[]> {
+export async function buildPriorityList(): Promise<string[]> {
   const seen = new Set<string>()
   const ordered: string[] = []
   const push = (codes: string[]) => {
@@ -123,25 +133,8 @@ async function buildPriorityList(): Promise<string[]> {
   return ordered
 }
 
-/**
- * 小并发池：从队列里最多同时取 POOL_SIZE 个在跑，跑完一个再取下一个，
- * 不是"批内还要再分批"。同步单只股票直接复用 fetchKlineIncremental——
- * 本地有数据只问增量、没数据整包拉、写盘（含合并）全部由它内部处理，
- * 这里不需要再重复一遍这些逻辑。
- */
-async function runPool(codes: string[], worker: (code: string) => Promise<void>): Promise<void> {
-  let idx = 0
-  async function lane(): Promise<void> {
-    while (idx < codes.length) {
-      const code = codes[idx++]
-      await worker(code)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(POOL_SIZE, codes.length) }, lane))
-}
-
 async function processBatch(codes: string[]): Promise<void> {
-  await runPool(codes, async (code) => {
+  await runPool(codes, POOL_SIZE, async (code) => {
     try {
       await fetchKlineIncremental(code, 'day', undefined, true)
     } catch {
@@ -163,7 +156,8 @@ async function loadOrInitState(): Promise<SyncState> {
   return fresh
 }
 
-function canProceed(): boolean {
+/** 前台可见 + 非弱网 才能推进——两套全量同步（本文件、quoteIntradaySync.ts）共用同一判定 */
+export function canProceed(): boolean {
   return document.visibilityState === 'visible' && !shouldSkipPreload()
 }
 

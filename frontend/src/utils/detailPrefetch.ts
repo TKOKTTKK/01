@@ -49,16 +49,6 @@ import { shouldSkipPreload } from './preload'
  * 识别 ERR_CANCELED 并跳过全局报错提示；这里的 swallow() 也会接住，
  * 不会冒泡成未处理异常。
  *
- * 【v4.1 离开视口即撤回】上面的"好网络不取消"说的是真实点击发生时对其它
- * 预取的态度，针对的是"用户已经点开了一只股票，其它预取还要不要抢带宽"；
- * 这里是另一件事——视口预取（见 viewportPrefetch.ts）触发的请求，如果对应
- * 的行本身已经划出视口（用户根本没打算看它了），不管好网络弱网络都应该
- * 撤回，因为这份数据大概率永远不会被消费，纯粹是浪费带宽和请求数，快速
- * 划过几百只股票时这类浪费会累积成明显的网络压力。为此新增
- * dropStockPrefetch：只撤回"还没落地"的预取（entry.done 为 false），
- * 已经到手的数据继续留着复用；批量请求只有整批的股票都划出视口了才真的
- * abort 网络调用，避免连累同批次里仍然可见的其它股票。
- *
  * 【v3.5 Fetch Priority】好网络下不取消，那"预取请求"和"真实点击的请求"
  * 就是完全平等的并发请求，谁也不比谁优先——这不是我们想要的：预取终归是
  * 投机性的，真实点击才是用户此刻真正在等的那一个。本文件发出的每个请求
@@ -73,11 +63,6 @@ const TTL_MS = 8000
 export interface Entry {
   time: number
   controller: AbortController
-  /** stock/quote/intraday 三个字段是否已经全部落地（成功或失败都算）——
-   *  离开视口需要决定"能不能安全撤回这只股票的预取"时，只有还没落地
-   *  （数据还在路上）的 entry 才值得撤回；已经到手的数据没有理由因为
-   *  用户划走了就扔掉，见 dropStockPrefetch。 */
-  done: boolean
   stock: Promise<StockItem>
   quote: Promise<Quote>
   intraday: Promise<Intraday>
@@ -87,12 +72,6 @@ export interface Entry {
 }
 
 const cache = new Map<string, Entry>()
-
-/** 批次内部登记表：code -> 该 code 所属批次共享的 controller，以及
- *  "批次里还有哪些 code 仍然需要这次结果"的集合（同一个 Set 对象被批次内
- *  所有 code 共享引用）。只在批次尚未落地期间存在，落地后统一清理，
- *  仅供 dropStockPrefetch 判断"是否整个批次都已经没人要了"使用。 */
-const batchMembership = new Map<string, { controller: AbortController; siblings: Set<string> }>()
 
 /**
  * 取消发生时的旁路通知——viewportPrefetch.ts 的"60秒去重表"跟这里是两个
@@ -147,19 +126,13 @@ function buildEntry(code: string, boot: Promise<DetailBootstrap>, controller: Ab
   const quote = boot.then(b => b.quote).catch(() => ensureLegacy().quote)
   quote.then(v => writeQuoteDiskCache(code, v)).catch(() => { /* 静默 */ })
 
-  const entry: Entry = {
+  return {
     time: Date.now(),
     controller,
-    done: false,
     stock: swallow(boot.then(b => b.stock).catch(() => ensureLegacy().stock)),
     quote: swallow(quote),
     intraday: swallow(intraday)
   }
-  // 三个字段全部落地（不管成功失败）才算这只股票"有了结果"——用
-  // allSettled 而不是盯 boot 本身，是因为 boot 失败后还会走 ensureLegacy
-  // 降级三连，那三个请求落地才是真正的终点，见 dropStockPrefetch 的用法
-  Promise.allSettled([entry.stock, entry.quote, entry.intraday]).then(() => { entry.done = true })
-  return entry
 }
 
 function makeEntry(code: string, lowPriority: boolean): Entry {
@@ -235,53 +208,16 @@ export function prefetchStockDetailBatch(codes: string[]): void {
   const need = codes.filter(code => !fresh(code))
   if (need.length === 0) return
   // 批量请求本身的网络调用不挂在任何单只股票的 controller 上（见
-  // makeBatchEntry 的注释），而是登记进 batchMembership：批次里的股票
-  // 逐个离开视口时，dropStockPrefetch 会从 siblings 里摘掉对应 code；
-  // 只有这个批次里的股票全部划出视口（siblings 空了），才会真正 abort
-  // 掉这一次批量网络请求——只要还有一个 code 仍在视口内，这次请求就该
-  // 继续跑完，不能因为别的行划走了就连累它拿不到数据。
+  // makeBatchEntry 的注释）——弱网下"取消其它预取"仍会把某只股票的 entry
+  // 从 cache 里摘掉、不再等待它的结果，但这次批量请求已经发出，会自然完成，
+  // 不做局部中止：批量本身已经比 N 个单独请求省了大量开销，为了单只股票的
+  // 取消去拆分/中止整批得不偿失。
   const batchController = new AbortController()
   const batchPromise = swallow(getDetailBootstrapBatch(need, batchController.signal))
-  const siblings = new Set(need)
-  const cleanup = () => { for (const code of need) batchMembership.delete(code) }
-  batchPromise.then(cleanup, cleanup) // 正常落地/失败都要清理登记表，避免内存泄漏
   for (const code of need) {
-    batchMembership.set(code, { controller: batchController, siblings })
     const entryController = new AbortController()
     cache.set(code, makeBatchEntry(code, batchPromise, entryController))
   }
-}
-
-/**
- * 视口预取专用：一行离开视口（滚出屏幕 / 虚拟列表回收）时调用，撤回这只
- * 股票"还没到手"的预取。
- *
- * - 若数据已经落地（entry.done）：什么都不做，留着它——已经到手的数据
- *   没理由因为划走了就扔掉，划回来正好是零等待，这也是预取本身的意义。
- * - 若还在同一个批次里、批次尚未落地：把这只股票从批次的 siblings 集合里
- *   摘掉；只有摘完这个批次一个仍需要的 code 都不剩，才真正 abort 掉那次
- *   批量网络请求——保证不会为了一只股票离开就连累同批次里仍然可见的
- *   其它股票。
- * - 同时 abort 这只股票自己的 entryController，覆盖它独有的降级请求
- *   （聚合接口失败后的三连）和 deep 预取（K线+指标），这部分不会影响
- *   批次里的兄弟 code。
- * - 无论是否真的 abort 了网络请求，都要把 cache 里这只股票的 entry 摘掉，
- *   并通知 60 秒去重表（attempted）一起清掉——保证重新进入视口时会发起
- *   一次全新的请求，而不是命中一个已经作废的 entry，或者卡在去重表里
- *   白等 60 秒才能重新预取。
- */
-export function dropStockPrefetch(code: string): void {
-  const entry = cache.get(code)
-  if (!entry || entry.done) return
-  const member = batchMembership.get(code)
-  if (member) {
-    batchMembership.delete(code)
-    member.siblings.delete(code)
-    if (member.siblings.size === 0) member.controller.abort()
-  }
-  entry.controller.abort()
-  cache.delete(code)
-  for (const fn of cancelListeners) fn(code)
 }
 
 /** 详情页读取：命中新鲜预取就直接复用，否则现场发起请求（真实需要，不投机，走正常优先级） */
