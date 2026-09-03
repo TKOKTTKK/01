@@ -28,7 +28,27 @@ export interface TransferMeasurement {
   buffer: ArrayBuffer
 }
 
+/**
+ * 浏览器默认的 Resource Timing 缓冲区只保留最近 ~250 条记录（Chrome 默认值，
+ * 规范没强制具体数字，但普遍实现都有一个不算大的默认上限），满了之后
+ * **新条目会被直接丢弃、不会覆盖旧的**，要显式调大才行。
+ *
+ * 这在 Vite 开发模式下特别容易踩到：Vite dev server 不打包，每个 import
+ * 的模块都是单独一次网络请求，随便跑一会儿开发服务器、切几个页面，
+ * 轻轻松松就能攒够 250 条模块加载记录，把缓冲区占满——等你真正想测的
+ * 那几次 fetch 发出去的时候，Resource Timing 早就"记不下新条目"了，
+ * 表现出来就是 measureRequest() 怎么测都拿不到真实的 encodedBodySize，
+ * 100% 回退到"解压后大小"，而且是系统性地每次都测不到，不是偶发。
+ *
+ * 在这个模块被第一次 import 时就把缓冲区调大，越早执行越好——最好是
+ * 页面刚加载、还没来得及塞满 250 条的时候就生效。
+ */
+if (typeof performance !== 'undefined' && typeof performance.setResourceTimingBufferSize === 'function') {
+  performance.setResourceTimingBufferSize(2000)
+}
+
 let seq = 0
+let loggedMissOnce = false
 
 /**
  * 发起一次 GET 请求并测量。会在 URL 后面加一个自增的 `_dbg` 查询参数：
@@ -58,17 +78,32 @@ export async function measureRequest(
   let measured = false
 
   // Resource Timing 条目是异步写入 Performance 缓冲区的，理论上 fetch 的
-  // Promise resolve 时条目未必已经写进去；实测现代浏览器里 arrayBuffer()
-  // 读完时条目已经可查，但保险起见短暂等一次微任务队列，避免偶发漏测。
-  await new Promise((r) => setTimeout(r, 0))
-  const entry = performance
-    .getEntriesByType('resource')
-    .filter((e) => e.name.endsWith(taggedUrl) || e.name === new URL(taggedUrl, location.href).href)
-    .pop() as PerformanceResourceTiming | undefined
+  // Promise resolve 时条目未必已经写进去；轮询几次（每次隔一个宏任务），
+  // 比只等一次更抗偶发的时序错位，代价很小（最多多等几十毫秒）。
+  let entry: PerformanceResourceTiming | undefined
+  for (let i = 0; i < 5 && !entry; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 20))
+    entry = performance
+      .getEntriesByType('resource')
+      .filter((e) => e.name.endsWith(taggedUrl) || e.name === new URL(taggedUrl, location.href).href)
+      .pop() as PerformanceResourceTiming | undefined
+  }
 
   if (entry && entry.encodedBodySize > 0) {
     encodedBytes = entry.encodedBodySize
     measured = true
+  } else if (!loggedMissOnce) {
+    // 只打一次，避免连续测多次的时候刷屏；这条日志本身就是排障入口——
+    // 如果 totalEntries 已经顶到几千（或者你手动调小过 setResourceTimingBufferSize），
+    // 基本可以确认是缓冲区问题；如果 entry 是 undefined 但总数不多，
+    // 大概率是 URL 匹配没对上或者时序问题，把 taggedUrl 和 entry?.name
+    // 都打出来方便对比。
+    loggedMissOnce = true
+    console.warn(
+      '[protocolBench] 没能从 Resource Timing 里测到真实传输字节数，已回退成解压后大小。' +
+      '排障信息：',
+      { taggedUrl, entryFound: !!entry, entryEncodedBodySize: entry?.encodedBodySize, totalResourceEntries: performance.getEntriesByType('resource').length }
+    )
   }
 
   return { url, decodedBytes, encodedBytes, measured, durationMs, buffer }
