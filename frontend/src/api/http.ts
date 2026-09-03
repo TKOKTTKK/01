@@ -116,7 +116,12 @@ async function fetchLowPriority<T>(config: {
 
   let resp: Response
   try {
-    resp = await fetch(`${base}${config.url}${qs}`, {
+    // URL 末尾加一个不影响后端处理的标记参数 `_pf=1`——后端这些接口都是
+    // @PathVariable 绑定，未知的多余 query 参数会被直接忽略，不影响业务；
+    // 加这个纯粹是为了让 utils/trafficStats.ts 能通过 Resource Timing 的
+    // URL 判断"这条请求是不是预取发出的"，从而把预取流量和真实交互流量
+    // 分开统计，见该文件头注释。
+    resp = await fetch(`${base}${config.url}${qs}${qs ? '&' : '?'}_pf=1`, {
       method: config.method,
       headers,
       body: config.method === 'POST' ? JSON.stringify(config.data ?? {}) : undefined,

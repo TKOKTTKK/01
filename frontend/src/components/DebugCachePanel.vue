@@ -9,7 +9,24 @@
     </div>
     <div class="debug-row">
       <button class="debug-btn ghost" @click="checkSyncStatus">查看全量同步状态</button>
+      <button class="debug-btn ghost" @click="checkTraffic">查看流量统计</button>
     </div>
+
+    <template v-if="traffic">
+      <div class="debug-section">
+        <div class="debug-h">流量统计（从这次打开 App 开始累计，刷新页面归零）</div>
+        <div class="debug-hit">预取流量：{{ formatBytes(traffic.prefetchBytes) }}（{{ traffic.prefetchCount }} 个请求）</div>
+        <div class="debug-hit">
+          总流量：{{ formatBytes(traffic.totalBytes) }}（{{ traffic.totalCount }} 个请求）
+          {{ traffic.totalBytes > 0 ? `· 预取占比 ${(traffic.prefetchBytes / traffic.totalBytes * 100).toFixed(1)}%` : '' }}
+        </div>
+        <div class="debug-miss" v-if="traffic.totalCount === 0">
+          还没有任何请求被记录到——如果这时候明明已经有网络活动，
+          可能是浏览器不支持 Resource Timing，或者请求发生在 App 打开之前
+          （理论上不应该，见 trafficStats.ts 头注释）
+        </div>
+      </div>
+    </template>
 
     <div v-if="loading" class="debug-hint">查询中…</div>
 
@@ -74,19 +91,32 @@
 <script setup lang="ts">
 /**
  * ⚠️ 临时调试面板 —— 仅用于在真机上肉眼验证 IndexedDB 预取缓存 /
- * 全量后台同步是否命中/正常推进，不是正式功能，不应该留在生产代码里。
+ * 全量后台同步是否命中/正常推进、预取流量是否符合预期，不是正式功能，
+ * 不应该留在生产代码里。
  *
- * 用完删除方法（共 2 处）：
+ * 用完删除方法（共 4 处，比其它几处多了流量统计相关的两处）：
  * 1. 删掉本文件：frontend/src/components/DebugCachePanel.vue
  * 2. 打开 frontend/src/views/SettingsView.vue，删掉里面标了
  *    "// 调试面板：验证完删掉本段和 DebugCachePanel.vue" 的那几处代码
- * 两处都删完，`npm run build` 应该照常通过（没有任何其他文件引用这个组件）。
+ * 3. 删掉 frontend/src/utils/trafficStats.ts
+ * 4. 打开 frontend/src/api/http.ts，删掉 fetchLowPriority 里给 URL 加
+ *    `_pf=1` 标记参数的那一行（有注释标注，搜 "_pf=1"）；打开 main.ts，
+ *    删掉最上面 `import './utils/trafficStats'` 那一行（连同上面那段
+ *    "必须是第一个 import" 的注释）
+ * 前两处不牵扯任何正式功能（原理见下）；第 3、4 处例外——流量统计要
+ * 精确区分"预取流量"和"真实交互流量"，必须在 http.ts 里给预取请求的 URL
+ * 打一个标记，这是唯一碰了生产代码的地方，删除时不能漏掉，否则会留下
+ * 一个不会被任何东西读取、但一直在悄悄改 URL 的死代码。
  *
- * 实现上直接用原生 IndexedDB API 只读打开 chartDiskCache.ts 建的那个库
- * （stock_app_chart_cache），不 import、不改动 chartDiskCache.ts /
- * fullSync.ts 本身，删除这一个文件不会牵扯到任何正式代码。
+ * 查缓存/同步状态部分：直接用原生 IndexedDB API 只读打开 chartDiskCache.ts
+ * 建的那个库（stock_app_chart_cache），不 import、不改动 chartDiskCache.ts /
+ * fullSync.ts 本身。
+ * 查流量部分：读 utils/trafficStats.ts 暴露的 getTrafficStats()——这个
+ * 文件本身是自包含的（自己内部用 PerformanceObserver 统计，不需要本面板
+ * 也能独立工作），本面板只是读一下它的结果展示出来。
  */
 import { ref } from 'vue'
+import { getTrafficStats, type TrafficStats } from '@/utils/trafficStats'
 
 const DB_NAME = 'stock_app_chart_cache'
 
@@ -111,6 +141,7 @@ const loading = ref(false)
 const result = ref<DebugResult | null>(null)
 const allCodes = ref<string[] | null>(null)
 const syncStatus = ref<SyncStatus | null>(null)
+const traffic = ref<TrafficStats | null>(null)
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -198,6 +229,17 @@ function checkTradingHours(): { inTradingHours: boolean; nowStr: string } {
   const mins = hour * 60 + minute
   const inTradingHours = (mins >= 9 * 60 + 30 && mins <= 11 * 60 + 30) || (mins >= 13 * 60 && mins <= 15 * 60)
   return { inTradingHours, nowStr }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
+function checkTraffic() {
+  // 纯读内存变量，同步操作，不需要 loading 态
+  traffic.value = getTrafficStats()
 }
 
 async function checkSyncStatus() {

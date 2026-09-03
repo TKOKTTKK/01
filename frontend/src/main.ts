@@ -1,3 +1,10 @@
+// 【必须是第一个 import】流量统计（utils/trafficStats.ts）是 import 时
+// 就自启动的（模块顶层直接 new PerformanceObserver 开始监听），要保证
+// "从打开 App 那一刻"就开始记、不漏掉最早的几个请求，这一行就必须排在
+// 所有其它 import 前面——任何排在它前面的 import 如果在模块加载阶段
+// 就触发了网络请求（目前没有，但以后加代码时要留意这一点），就会被
+// 漏记。
+import './utils/trafficStats'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'

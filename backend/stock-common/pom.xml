@@ -39,44 +39,5 @@
       <groupId>jakarta.validation</groupId>
       <artifactId>jakarta.validation-api</artifactId>
     </dependency>
-    <!-- Protobuf + Gzip 重构新增：行情/分时二进制协议的运行时依赖，
-         生成的 Java 类（com.stockapp.common.proto.*）由下面的 protobuf-maven-plugin
-         在 mvn generate-sources 阶段从 src/main/proto/*.proto 编译产出，
-         不需要手写或提交到版本库。 -->
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>3.25.3</version>
-    </dependency>
   </dependencies>
-
-  <build>
-    <extensions>
-      <!-- 根据构建机 OS/CPU 架构自动选择对应的 protoc 可执行文件（Linux/Mac/Windows,
-           x86_64/aarch64 等），避免手工下载安装 protoc 这个额外的本地环境依赖 -->
-      <extension>
-        <groupId>kr.motd.maven</groupId>
-        <artifactId>os-maven-plugin</artifactId>
-        <version>1.7.1</version>
-      </extension>
-    </extensions>
-    <plugins>
-      <plugin>
-        <groupId>org.xolstice.maven.plugins</groupId>
-        <artifactId>protobuf-maven-plugin</artifactId>
-        <version>0.6.1</version>
-        <configuration>
-          <protocArtifact>com.google.protobuf:protoc:3.25.3:exe:${os.detected.classifier}</protocArtifact>
-          <protoSourceRoot>${project.basedir}/src/main/proto</protoSourceRoot>
-        </configuration>
-        <executions>
-          <execution>
-            <goals>
-              <goal>compile</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
 </project>
