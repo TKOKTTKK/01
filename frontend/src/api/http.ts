@@ -1,7 +1,6 @@
 import axios from 'axios'
 import { useUserStore } from '@/stores/user'
 import router from '@/router'
-import { recordApiTraffic } from '@/utils/trafficStats'
 
 /** 统一 API 返回结构 */
 export interface ApiResult<T> {
@@ -66,15 +65,6 @@ export async function request<T>(config: {
 }): Promise<T> {
   const resp = await http.request<ApiResult<T>>({ method: 'get', ...config })
   const body = resp.data
-  // 流量统计（utils/trafficStats.ts）：axios 已经把响应体解析成对象了，
-  // 拿不到原始响应文本，用 JSON.stringify 重新序列化一遍来估算解压后的
-  // 字节数——跟服务端实际发出来的紧凑 JSON 文本相比，字段顺序、数字格式
-  // 都应该一致，差异可以忽略。哪怕业务上 code != 0（下面会抛错），这次
-  // 响应体也是真实通过网络传输过的，一样要计入，所以放在抛错判断之前。
-  // try/catch 兜底：统计失败不应该影响正常的请求-响应流程。
-  try {
-    recordApiTraffic(new TextEncoder().encode(JSON.stringify(body)).length, false)
-  } catch { /* 静默 */ }
   if (body.code === 0) return body.data
   if (body.code === 40100 || body.code === 40101) {
     useUserStore().logout()
@@ -144,15 +134,7 @@ async function fetchLowPriority<T>(config: {
     if (resp.status >= 500) notifyNetworkError('服务暂时不可用，请稍后重试')
     throw new Error(`HTTP ${resp.status}`)
   }
-  // 用 resp.text() 而不是 resp.json()：既要拿解析后的对象，也要拿原始文本
-  // 量字节数（流量统计，见 utils/trafficStats.ts）——先读文本、量完字节数
-  // 再 JSON.parse，比"克隆一份 Response 再各自读一次"更直接，也不会
-  // 多发一次网络请求（文本已经在内存里了，parse 只是本地计算）。
-  const text = await resp.text()
-  try {
-    recordApiTraffic(new TextEncoder().encode(text).length, true)
-  } catch { /* 静默：统计失败不应该影响预取本身 */ }
-  const body = JSON.parse(text) as ApiResult<T>
+  const body = await resp.json() as ApiResult<T>
   if (body.code === 0) return body.data
   if (body.code === 40100 || body.code === 40101) {
     store.logout()

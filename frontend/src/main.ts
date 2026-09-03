@@ -1,7 +1,3 @@
-// 【必须是第一个 import】流量统计（utils/trafficStats.ts）——保留"最先
-// import"这个约定是为了跟其它可能有副作用的模块顺序保持一致，虽然当前
-// 版本（直接在 http.ts 里主动上报）本身不再需要抢在最前面初始化。
-import './utils/trafficStats'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
