@@ -16,4 +16,4 @@ export type QuoteProtocol = 'json' | 'protobuf'
  * 只要 quote 的单独轮询，也不影响 quoteIntradaySync.ts 里 quote/intraday
  * 各自独立判断新鲜度的后台同步——具体原因见 quoteIntradayGateway.ts 顶部注释。
  */
-export const QUOTE_PROTOCOL: QuoteProtocol = 'json'
+export const QUOTE_PROTOCOL: QuoteProtocol = 'protobuf'
