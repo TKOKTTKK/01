@@ -155,3 +155,39 @@
 3. 确认收益后，把这个 mapper + controller 的模式复制到其他高频接口
    （K 线、批量行情等），并考虑用 pbjs/pbts 走 codegen 替换掉现在前端的
    动态 `protobuf.parse()`，换取编译期类型安全。
+
+---
+
+## 两套协议现在怎么切换（2026-09 新增）
+
+`StockDetailView.vue` 的 `onActivated` 组合刷新（KeepAlive 切回详情页时
+同时刷新 quote + 分时）现在走的是统一入口
+`frontend/src/api/quoteIntradayGateway.ts` 里的 `fetchQuoteIntraday()`，
+内部按 `frontend/src/config/quoteProtocol.ts` 的 `QUOTE_PROTOCOL` 常量分流：
+
+```ts
+// frontend/src/config/quoteProtocol.ts
+export const QUOTE_PROTOCOL: QuoteProtocol = 'json'      // 改成 'protobuf' 即可切换
+```
+
+改这一个值、不需要动调用方代码：
+- `'json'`：走原来的 `getDetailBootstrap()`（单次组合请求，已经是优化过的
+  JSON+Gzip 路径，不是逐个请求 quote/intraday）。
+- `'protobuf'`：走 `getQuoteIntradayProto()`（`/quote-intraday.pb`）。
+
+**这个开关目前只覆盖一个调用点**，不是"全局协议开关"，原因见
+`quoteIntradayGateway.ts` 顶部注释，这里摘要一下（详细论证看那个文件）：
+
+| 调用点 | 现状 | 为什么没接进这个开关 |
+|---|---|---|
+| `StockDetailView.vue` `onActivated` | ✅ 已接入 | quote+intraday 本来就无条件一起刷新，语义完全对等 |
+| `loadQuote()`（10 秒轮询） | 仍是纯 JSON `getQuote` | 只要 quote，Protobuf 接口会强行搭上整个分时图，纯粹增加流量 |
+| `switchTab('intraday')` | 仍是纯 JSON `getIntraday` | 同理，只要 intraday 不要 quote |
+| `quoteIntradaySync.ts` 全量后台同步 | 仍是纯 JSON | quote/intraday 各自独立判断本地缓存新鲜度、按需分别请求，换成组合接口会强迫"只要有一个过期就把两个都重新拉"，是真实的请求量倒退，不是协议层面的等价替换 |
+| 冷启动（`onMounted` → `detailPrefetch.ts`） | 仍是纯 JSON | 牵扯预取缓存、viewport 命中判断，还没设计对应的 Protobuf 版本 |
+
+如果以后要往其他调用点铺开，思路是**先确认该调用点本来就是"quote 和
+intraday 无条件绑定获取"**，符合条件的才适合直接换成
+`fetchQuoteIntraday()`；不符合条件的（像上表后三行）要么保持现状，要么
+单独给 Protobuf 那边设计对应的"只要一个字段"的瘦身版接口，不能图省事
+一刀切全部指向同一个组合接口。

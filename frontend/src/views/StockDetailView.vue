@@ -82,8 +82,9 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  getDetailBootstrap, getIntraday, getQuote, getStockNews, inWatchlist
+  getIntraday, getQuote, getStockNews, inWatchlist
 } from '@/api'
+import { fetchQuoteIntraday } from '@/api/quoteIntradayGateway'
 import { getFreshEntry, getPrefetchedOrFetch } from '@/utils/detailPrefetch'
 import {
   readIntradayDiskCache, readKlineDiskCache, readQuoteDiskCache, writeQuoteDiskCache
@@ -384,13 +385,15 @@ onMounted(() => {
 // 时依然是命中缓存的零等待。
 onActivated(() => {
   if (stock.value) {
-    // 一次 bootstrap 同时刷新 quote + 分时（替代原来的两次独立请求）；
-    // 失败（如后端旧版本）降级为原来的两个独立接口
+    // 一次组合请求同时刷新 quote + 分时（替代原来的两次独立请求）；
+    // 走 JSON 还是 Protobuf 由 fetchQuoteIntraday 内部按
+    // config/quoteProtocol.ts 的 QUOTE_PROTOCOL 分流，这里不用关心。
+    // 失败（网络错误/后端异常）统一降级为原来的两个独立接口。
     // 上面已把 tab 重置为 intraday，这里必然要刷新分时
-    getDetailBootstrap(code)
-      .then(b => {
-        quote.value = b.quote
-        intraday.value = b.intraday
+    fetchQuoteIntraday(code)
+      .then(r => {
+        quote.value = r.quote
+        intraday.value = r.intraday
       })
       .catch(() => {
         loadQuote()
