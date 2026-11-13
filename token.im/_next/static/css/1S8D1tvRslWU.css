@@ -106,19 +106,19 @@
 
 @font-face {
   font-family: Outfit;
-  src: url(../fonts/Outfit-Regular.ttf);
+  src: url(../../../fonts/outfit/Outfit-Regular.ttf);
   font-weight: 400;
   unicode-range: U+30-39, U+61-7A, U+41-5A;
 }
 @font-face {
   font-family: Outfit;
-  src: url(../fonts/Outfit-Medium.ttf);
+  src: url(../../../fonts/outfit/Outfit-Medium.ttf);
   font-weight: 500;
   unicode-range: U+30-39, U+61-7A, U+41-5A;
 }
 @font-face {
   font-family: Outfit;
-  src: url(../fonts/Outfit-Bold.ttf);
+  src: url(../../../fonts/outfit/Outfit-Bold.ttf);
   font-weight: 700;
   unicode-range: U+30-39, U+61-7A, U+41-5A;
 }
@@ -168,7 +168,7 @@
   }
 }
 .anniversary-page .anniversary-page__container {
-  background-image: url(../images/background.png);
+  background-image: url(../../../images/anniversary/background.png);
   padding-bottom: 12.5rem;
   background-repeat: no-repeat;
   background-size: contain;
@@ -559,7 +559,7 @@
   border-radius: 62px;
   overflow: hidden;
   background-size: contain;
-  background-image: url(../images/benifit-2-bg.png);
+  background-image: url(../../../images/anniversary/benifit-2-bg.png);
 }
 @media screen and (max-width: 640px) {
   .anniversary-page .anniversary-section.benifits .anniversary-section__container .right-card {
