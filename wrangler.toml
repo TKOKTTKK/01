@@ -1,5 +1,4 @@
 name = "stock"
 compatibility_date = "2026-11-13"
 
-[assets]
-directory = "."
+directory = "./dist" # 请修改为你实际的构建输出目录，例如 dist、build 或 public
