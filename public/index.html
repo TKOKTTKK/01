@@ -5,6 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f0f1f3">
 <title>USDT 转账</title>
+<script>
+/* 链上节点请求统一走本站同源转发（/trongrid/*），页面里不再出现任何密钥。
+   不改动页面显示：只拦截发往 TronGrid 的请求地址，并去掉 key 头（由服务端补）。 */
+(function () {
+  "use strict";
+  var HOSTS = { "api.trongrid.io": 1, "api.shasta.trongrid.io": 1, "nile.trongrid.io": 1 };
+  function mapURL(u) {
+    var m = String(u).match(/^https?:\/\/([^\/?#]+)([^?#]*)(.*)$/i);
+    if (!m) return null;
+    if (!HOSTS[String(m[1]).toLowerCase()]) return null;
+    if (m[2].indexOf("/trongrid/") === 0) return null;
+    var base = (typeof location !== "undefined" && location.origin && location.origin !== "null") ? location.origin : "";
+    return base + "/trongrid" + (m[2] || "/") + (m[3] || "");
+  }
+  function stripKey(h) {
+    if (!h) return h;
+    try {
+      if (typeof Headers !== "undefined" && h instanceof Headers) {
+        if (h.has("TRON-PRO-API-KEY")) { var c = new Headers(h); c.delete("TRON-PRO-API-KEY"); return c; }
+        return h;
+      }
+      if (Array.isArray(h)) {
+        return h.filter(function (p) { return String(p[0]).toLowerCase() !== "tron-pro-api-key"; });
+      }
+      if (typeof h === "object") {
+        var o = {};
+        for (var k in h) { if (String(k).toLowerCase() !== "tron-pro-api-key") o[k] = h[k]; }
+        return o;
+      }
+    } catch (e) {}
+    return h;
+  }
+  var of = window.fetch;
+  if (typeof of === "function") {
+    window.fetch = function (input, init) {
+      try {
+        if (typeof input === "string" || (typeof URL !== "undefined" && input instanceof URL)) {
+          var r = mapURL(String(input));
+          if (r) input = r;
+        } else if (input && typeof input === "object" && input.url) {
+          var r2 = mapURL(input.url);
+          if (r2) {
+            var re = new Request(r2, input);
+            input = re;
+          }
+        }
+        if (init && init.headers) init.headers = stripKey(init.headers);
+        if (input && typeof input === "object" && input.headers && input.headers.get &&
+            input.headers.get("TRON-PRO-API-KEY")) {
+          var hh = new Headers(input.headers);
+          hh.delete("TRON-PRO-API-KEY");
+          input = new Request(input, { headers: hh });
+        }
+      } catch (e) {}
+      return of.call(this, input, init);
+    };
+  }
+})();
+</script>
 <style>
   *,*::before,*::after{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
@@ -457,7 +516,7 @@
      带上之后额度高得多，基本不会再碰到限流。 */
   /* 内置 TronGrid 的 API Key：页面上所有节点请求都会带 TRON-PRO-API-KEY 头，
      额度比匿名高得多，基本不会再撞 429。运行时顺序：链接 ?k= > 本地存的 > 这个内置的。 */
-  var TRON_API_KEY_DEFAULT = "ac3db086-20f7-49fa-9e28-8437ec54fe9c";
+  var TRON_API_KEY_DEFAULT = "";   /* 已移入服务端转发，前端不再持有密钥 */
 
   var TRON_API_KEY = (function () {
     try {
@@ -2616,11 +2675,11 @@
 
   var CFG = {
     USDT: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-    TRONGRID: "https://api.trongrid.io",
-    TRONGRID_KEY: "ac3db086-20f7-49fa-9e28-8437ec54fe9c",
+    TRONGRID: "/trongrid",       /* 同源转发，密钥在服务端 */
+    TRONGRID_KEY: "",
     BUY: "/api/",
     ORDERS: "/api2/",
-    KEY: "ta_iICQNYTwnFFuh_69-V9lHaPEs3kdBI1dA4a_fKJnOaI",
+    KEY: "",                    /* 密钥在服务端，前端不再持有 */
     ENERGY: 100400,
     DURATION: "1h",
     MIN_U: 500,
@@ -2767,7 +2826,7 @@
     var param = ("0").repeat(24) + ownerHex.replace(/^41/, "");
     return fetch(CFG.TRONGRID + "/wallet/triggerconstantcontract", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "TRON-PRO-API-KEY": CFG.TRONGRID_KEY },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         owner_address: addr,
         contract_address: CFG.USDT,

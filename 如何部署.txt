@@ -1,56 +1,66 @@
-这个包是给你部署到 Cloudflare 用的，作用两件事：
-  1) 把 index.html 当静态页对外提供（就是你原来那份单文件，一个字没改）
-  2) 把 /api/ /api2/ /api3/ 三个路径同源转发到 tronagg
+这个包是「两把密钥都放 Worker」的版本。
 
-为什么要转发：tronagg 不允许第三方网页跨域直连，页面直接 fetch 它的域名会被浏览器拦；
-走同源转发就跟在原来那个站上跑完全一样，而且密钥可以只放在 Worker 里。
+和上一版的区别
+--------------
+1. tronagg 的 key、TronGrid 的 key，现在都只写在 worker.js 里。
+   页面（index.html）里一把都不剩，查看源码也搜不到。
+2. 为了做到这一点，页面原本直连 api.trongrid.io 的链上请求，也改走本站同源转发：
+     页面  ->  /trongrid/xxx  ->  https://api.trongrid.io/xxx （Worker 自动补 TRON-PRO-API-KEY）
+3. 页面可见内容一个字没变（实测可见文字与原版完全一致），只在 <head> 里加了一小段
+   请求转写脚本，把发往 TronGrid 的地址改成本站路径，并去掉请求里的 key 头。
 
-==================================================
-方式一：Workers + wrangler（推荐，最省事）
-==================================================
-1. 解压后进入这个目录（worker.js、wrangler.toml、public/ 都在同级）
-2. npm i -D wrangler
-3. npx wrangler login
-4. 存 key（不想用 secret 可以跳过，前端自带的 key 会被透传）：
-     npx wrangler secret put TRONAGG_KEY
-5. npx wrangler deploy
-6. 输出里会有一个 https://tron-pay.<你的子域>.workers.dev 地址，打开就是你的页面
+路由表
+------
+  POST /api/        -> tronagg 下单
+  GET  /api2/       -> tronagg 查订单
+  GET  /api3/       -> tronagg 报价
+  ANY  /trongrid/*  -> TronGrid 节点（自动带 key）
+  其它               -> 静态页 index.html
 
-==================================================
+部署（三选一，和之前一样）
+==========================
+方式一：wrangler（推荐）
+  1. 解压后进目录（worker.js、wrangler.toml、public/ 同级）
+  2. npm i -D wrangler
+  3. npx wrangler login
+  4. npx wrangler deploy
+  5. 打开输出里的 https://<名字>.<子域>.workers.dev
+
+  注意：这一版不需要再执行 wrangler secret put，key 已经在 worker.js 里了。
+
 方式二：控制台建 Worker
-==================================================
-1. Workers & Pages -> 创建 -> Worker
-2. 编辑代码，把 worker.js 的全部内容粘进去，Deploy
-3. Settings -> Variables and Secrets，加一个 Secret：TRONAGG_KEY = 你的 key
-4. Settings -> 静态资源（Assets），绑定名填 ASSETS，指向 index.html 所在目录
-   （控制台上传静态文件比较绕，能用方式一就用方式一）
+  1. Workers & Pages -> 创建 Worker -> 把 worker.js 全部粘进去 -> Deploy
+  2. Settings -> 静态资源（Assets），绑定名 ASSETS，指向 index.html 所在目录
 
-==================================================
-方式三：Cloudflare Pages（拖拽/上传）
-==================================================
-1. 准备一个输出目录，把 public/index.html 放进去
-2. 把本包的 worker.js 复制一份改名成 _worker.js，放在 index.html 同级
-3. 整个目录上传到 Pages（或者 git push 让它自动构建）
+方式三：Cloudflare Pages（拖拽）
+  1. 把 worker.js 复制一份改名 _worker.js，和 index.html 放同一层
+  2. 整个目录上传
 
-==================================================
 换 key
-==================================================
-方式一：npx wrangler secret put TRONAGG_KEY 重设一次，再 deploy
-方式二：控制台 Secrets 里改
-index.html 不用动，也不用重新上传。
+------
+  A) 直接改 worker.js 顶部两行常量，重新 deploy：
+       const TRONAGG_KEY_DEFAULT = "新的 key";
+       const TRONGRID_KEY_DEFAULT = "新的 key";
+  B) 或者不改文件，用 Secret 覆盖（优先级高于写死的值）：
+       npx wrangler secret put TRONAGG_KEY
+       npx wrangler secret put TRONGRID_KEY
+  两种都行；页面不用动、不用重传。
 
-==================================================
-确认转发通了没
-==================================================
-浏览器打开（前提是已经配好 TRONAGG_KEY）：
-  https://<你的域名>/api3/?resource_amount=100400&duration=1h
-应该返回一段 JSON，里面有 "total_price_trx":"1.8072" 之类。
-返回 404 或 HTML，说明转发没生效，回去检查 worker 有没有接管 /api3/ 这个路径。
+怎么确认部署成功
+----------------
+1. 页面能正常打开。
+2. 打开   https://<你的域名>/api3/?resource_amount=100400&duration=1h
+   应返回 JSON，里面有 "total_price_trx" 之类的报价。
+3. 打开   https://<你的域名>/trongrid/wallet/getnowblock
+   应返回一大段 JSON（包含 blockID、block_header）。返回 404 说明转发没接管这个路径。
+4. 在页面上右键「查看网页源代码」，搜索 ta_ 和 ac3db086，都应该是 0 条。
 
-==================================================
-备注
-==================================================
-- 前端还在用 /api/ 下单、/api2/ 查订单，路径不用改。
-- tronagg 的 key 建议只放少量 TRX，定期换。
-- 「一个地址只租一次」目前记在访客浏览器 localStorage；要按地址彻底封死需要服务端存储
-  （Cloudflare 可以用 KV），需要的话跟我说。
+注意事项
+--------
+- 这一版必须 worker.js 和 index.html 一起部署。只换 worker 不换页面：页面会继续
+  直连 TronGrid（能跑，但 key 还留在页面里）；只换页面不换 worker：/trongrid 会 404，
+  页面读不到余额。
+- 如果访客的 TronLink 里手动配置了别的节点（不是 api.trongrid.io），那部分请求仍直连
+  那个节点 —— 那是钱包自己的网络，本来就不涉及我们的 key。
+- 密钥写在 worker.js 里，浏览器拿不到；能看到源码的只有你的 Cloudflare 账号。
+  但如果这个包转发给别人，等于把 key 给了对方 —— 分享前先换 key。
