@@ -1,8 +1,0 @@
-name = "tron-pay"
-main = "worker.js"
-compatibility_date = "2025-11-01"
-
-# 静态文件目录：把你的单文件改名成 index.html 放进 public/
-[assets]
-directory = "./public"
-binding = "ASSETS"
